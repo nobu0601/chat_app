@@ -1,6 +1,6 @@
-# chapter10
-
-A new Flutter project.
+# chat application
+A chat application built with Flutter allows users to chat by entering their name and the name of a chat room.
+To chat with others, they must use the same chat room name.
 
 ## Getting Started
 
