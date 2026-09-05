@@ -20,6 +20,7 @@ void main() {
       final result =
           AffiliateLinkConverter.convert('https://www.amazon.co.jp/dp/B012345678');
       expect(result.isAffiliate, isTrue);
+      expect(result.service, AffiliateService.amazon);
       expect(result.url, contains('tag=mytag-22'));
       expect(result.url, startsWith('https://www.amazon.co.jp/dp/B012345678'));
     });
@@ -45,6 +46,7 @@ void main() {
       const original = 'https://item.rakuten.co.jp/shop/item001/';
       final result = AffiliateLinkConverter.convert(original);
       expect(result.isAffiliate, isTrue);
+      expect(result.service, AffiliateService.rakuten);
       expect(
         result.url,
         'https://hb.afl.rakuten.co.jp/hgc/1234567.89012345/'

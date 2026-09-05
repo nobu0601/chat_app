@@ -37,7 +37,6 @@ dependencies:
 
   # アフィリエイトリンク自動生成機能で使用
   url_launcher: ^6.3.1
-  shared_preferences: ^2.3.3
 
 dev_dependencies:
   flutter_test:

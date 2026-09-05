@@ -6,15 +6,18 @@ import 'affiliate_link.dart';
 
 /// チャットメッセージ本文を表示するウィジェット。
 ///
-/// 本文中に Amazon / 楽天の商品 URL が含まれていた場合、設定済みの
+/// 本文中に Amazon / 楽天の商品 URL が含まれていた場合、アプリ運営者の
 /// アソシエイトタグ／アフィリエイトIDを使って自動的にアフィリエイトリンクへ
 /// 変換し、タップで開けるリンクとして表示する。ステルスマーケティング対策として
 /// 変換したリンクの直前に「[PR]」表示を付ける。
 class MessageText extends StatefulWidget {
-  const MessageText({super.key, required this.text, this.style});
+  const MessageText({super.key, required this.text, this.style, this.onAffiliateLinkOpened});
 
   final String text;
   final TextStyle? style;
+
+  /// アフィリエイトリンクが実際に開かれたときに呼ばれる（クリック計測用）。
+  final void Function(AffiliateLinkResult result)? onAffiliateLinkOpened;
 
   @override
   State<MessageText> createState() => _MessageTextState();
@@ -36,11 +39,14 @@ class _MessageTextState extends State<MessageText> {
     _recognizers.clear();
   }
 
-  Future<void> _open(String url) async {
-    final uri = Uri.tryParse(url);
+  Future<void> _open(AffiliateLinkResult result) async {
+    final uri = Uri.tryParse(result.url);
     if (uri == null) return;
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (result.isAffiliate) {
+        widget.onAffiliateLinkOpened?.call(result);
+      }
     }
   }
 
@@ -74,7 +80,7 @@ class _MessageTextState extends State<MessageText> {
         );
       }
 
-      final recognizer = TapGestureRecognizer()..onTap = () => _open(result.url);
+      final recognizer = TapGestureRecognizer()..onTap = () => _open(result);
       _recognizers.add(recognizer);
 
       spans.add(

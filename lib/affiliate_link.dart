@@ -1,10 +1,20 @@
-/// URL を検知して、設定済みのアフィリエイトID/タグを使ってアフィリエイトリンクへ
-/// 自動変換するための純粋なロジック。Flutter に依存しないので単体テストしやすい。
+/// URL を検知して、アプリ運営者のアフィリエイトID/タグを使って
+/// アフィリエイトリンクへ自動変換するための純粋なロジック。
+/// Flutter に依存しないので単体テストしやすい。
 library;
+
+import 'affiliate_config.dart';
+
+/// リンク変換対象のサービス種別。クリック計測の集計に使う。
+enum AffiliateService { amazon, rakuten }
 
 /// メッセージ中の URL 1件に対する変換結果。
 class AffiliateLinkResult {
-  const AffiliateLinkResult({required this.url, required this.isAffiliate});
+  const AffiliateLinkResult({
+    required this.url,
+    required this.isAffiliate,
+    this.service,
+  });
 
   /// 表示・遷移に使う URL（変換できなければ元の URL のまま）。
   final String url;
@@ -13,21 +23,21 @@ class AffiliateLinkResult {
   /// true の場合、UI 側で「[PR]」などの明示表示を行うために使う
   /// （ステルスマーケティング規制対応）。
   final bool isAffiliate;
+
+  /// 変換元のサービス種別（アフィリエイトでない場合は null）。
+  final AffiliateService? service;
 }
 
 /// チャット全体で共有するアフィリエイト設定。
 ///
-/// 実際のアソシエイトタグ／アフィリエイトIDはユーザーごとに異なる個人情報のため
-/// ソースコードにはハードコードせず、アプリの設定画面から入力してもらい
-/// [AffiliateSettingsStore]（shared_preferences）に保存する。
+/// 既定値はビルド時に固定される [AffiliateConfig] から読み込まれる。
+/// テストなどで一時的に上書きできるよう static フィールドとして公開しているが、
+/// アプリ本体のUIからは変更できない（＝収益の宛先を利用者が書き換えられない）。
 class AffiliateLinkConverter {
   AffiliateLinkConverter._();
 
-  /// Amazon アソシエイトの「トラッキングID」（例: yourname-22）。
-  static String amazonAssociateTag = '';
-
-  /// 楽天アフィリエイトの「アフィリエイトID」（例: 1234567.89012345）。
-  static String rakutenAffiliateId = '';
+  static String amazonAssociateTag = AffiliateConfig.amazonAssociateTag;
+  static String rakutenAffiliateId = AffiliateConfig.rakutenAffiliateId;
 
   static final RegExp urlPattern = RegExp(r'https?://[^\s]+');
 
@@ -44,14 +54,22 @@ class AffiliateLinkConverter {
       final params = Map<String, String>.from(uri.queryParameters);
       params['tag'] = amazonAssociateTag;
       final converted = uri.replace(queryParameters: params).toString();
-      return AffiliateLinkResult(url: converted, isAffiliate: true);
+      return AffiliateLinkResult(
+        url: converted,
+        isAffiliate: true,
+        service: AffiliateService.amazon,
+      );
     }
 
     if (rakutenAffiliateId.isNotEmpty && _isRakutenHost(host)) {
       final encoded = Uri.encodeComponent(rawUrl);
       final converted =
           'https://hb.afl.rakuten.co.jp/hgc/$rakutenAffiliateId/?pc=$encoded&m=$encoded';
-      return AffiliateLinkResult(url: converted, isAffiliate: true);
+      return AffiliateLinkResult(
+        url: converted,
+        isAffiliate: true,
+        service: AffiliateService.rakuten,
+      );
     }
 
     return AffiliateLinkResult(url: rawUrl, isAffiliate: false);
