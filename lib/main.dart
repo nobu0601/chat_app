@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'affiliate_link.dart';
+import 'affiliate_settings.dart';
 import 'firebase_options.dart';
+import 'message_text.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+  await AffiliateSettingsStore.load();
   runApp(const MyApp());
 }
 
@@ -162,11 +166,83 @@ class _ChatPageState extends State<ChatPage> {
     textEditingController.text = "";
   }
 
+  Future<void> openAffiliateSettings() async {
+    final amazonController =
+        TextEditingController(text: AffiliateLinkConverter.amazonAssociateTag);
+    final rakutenController =
+        TextEditingController(text: AffiliateLinkConverter.rakutenAffiliateId);
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('アフィリエイト設定'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'メッセージ内の Amazon / 楽天の商品URLを、自動でアフィリエイトリンクに変換します。',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              SizedBox(height: 16),
+              TextField(
+                controller: amazonController,
+                decoration: InputDecoration(
+                  labelText: 'Amazonアソシエイト トラッキングID',
+                  hintText: '例: yourname-22',
+                ),
+              ),
+              SizedBox(height: 8),
+              TextField(
+                controller: rakutenController,
+                decoration: InputDecoration(
+                  labelText: '楽天アフィリエイト ID',
+                  hintText: '例: 1234567.89012345',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await AffiliateSettingsStore.save(
+                  amazonTag: amazonController.text.trim(),
+                  rakutenId: rakutenController.text.trim(),
+                );
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
+                if (mounted) {
+                  setState(() {});
+                }
+              },
+              child: Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+    amazonController.dispose();
+    rakutenController.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.room),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings),
+            tooltip: 'アフィリエイト設定',
+            onPressed: openAffiliateSettings,
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -188,7 +264,7 @@ class _ChatPageState extends State<ChatPage> {
                     subtitle: Text(
                       '${item.name} ${item.date.toString().replaceAll('-', '/').substring(0, 16)}',
                     ),
-                    title: Text(item.text),
+                    title: MessageText(text: item.text),
                   ),
                 );
               },
