@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      権限は必要最小限に絞っている（指示書 §18）。
+      ・INTERNET は宣言しない。本アプリは一切ネットワーク通信をしない。
+      ・SYSTEM_ALERT_WINDOW は宣言しない。バックグラウンドからの Activity 起動は
+        「通知をユーザーがタップする」経路のみで行う（指示書 §19 / ARCHITECTURE §8）。
+      ・PACKAGE_USAGE_STATS / BIND_NOTIFICATION_LISTENER_SERVICE は宣言しない。
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 物理 ICOCA カードの残高読み取り用。無い端末でも動くよう required=false -->
+    <uses-permission android:name="android.permission.NFC" />
+    <uses-feature android:name="android.hardware.nfc" android:required="false" />
+
+    <!--
+      Android 11 以降のパッケージ可視性。
+      モバイルICOCA アプリの有無を調べ、ランチャー Intent を解決するために必要。
+    -->
+    <queries>
+        <package android:name="jp.co.westjr.android.icocaapp" />
+        <package android:name="com.felicanetworks.mfm.main" />
+    </queries>
+
+    <application
+        android:name=".IcocaApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.IcocaAutoCharge"
+        tools:targetApi="34">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.IcocaAutoCharge">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          通知の「チャージ」アクションが直接開く Activity。
+          BroadcastReceiver を挟むと Android 12 以降の通知トランポリン制限に抵触するため、
+          PendingIntent.getActivity() でこの Activity を直接起動する。
+          ここは前面なので、ここから ICOCA アプリを起動すれば BAL 制限にかからない。
+        -->
+        <activity
+            android:name=".monitor.ChargeConfirmActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:noHistory="false"
+            android:theme="@style/Theme.IcocaAutoCharge.Transparent" />
+
+        <!--
+          自動操作サービス。
+          ・isAccessibilityTool は false。本アプリは障がい支援ツールではないため、
+            true を宣言することは Google Play ポリシー違反にあたる（調査 2.8）。
+          ・packageNames で ICOCA アプリのみに監視対象を限定している（最小権限）。
+          ・ユーザーが Android 設定から明示的に有効化しない限り動作しない。
+        -->
+        <service
+            android:name=".accessibility.IcocaAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <!-- チャージフロー実行中のみ起動する。ユーザーに処理中であることを可視化する -->
+        <service
+            android:name=".monitor.ChargeFlowService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="ICOCA charge flow supervision: keeps the automation state machine
+                    alive while the user completes a charge in the official ICOCA app." />
+        </service>
+
+        <receiver
+            android:name=".monitor.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".notify.NotificationActionReceiver"
+            android:exported="false" />
+    </application>
+</manifest>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  自動操作サービスの設定。
+
+  ・packageNames を ICOCA アプリだけに限定している。
+    これにより、本サービスは他のアプリの画面を一切見ない（指示書 §17/§18 の最小権限）。
+  ・canPerformGestures は宣言しない。座標タップは行わない方針のため（指示書 §10/§26）。
+  ・isAccessibilityTool="false"：本アプリは障がい支援ツールではない（Google Play ポリシー）。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:isAccessibilityTool="false"
+    android:notificationTimeout="200"
+    android:packageNames="jp.co.westjr.android.icocaapp"
+    android:settingsActivity="io.github.nobu0601.icocaautocharge.MainActivity" />

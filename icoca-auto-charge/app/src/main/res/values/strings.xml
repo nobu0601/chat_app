@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ICOCA自動チャージ支援</string>
+
+    <!-- ナビゲーション -->
+    <string name="nav_dashboard">ホーム</string>
+    <string name="nav_settings">設定</string>
+    <string name="nav_history">履歴</string>
+    <string name="nav_debug">Debug</string>
+
+    <!-- ユーザー補助サービス -->
+    <string name="accessibility_service_label">ICOCA自動チャージ支援</string>
+    <string name="accessibility_service_description">モバイルICOCAアプリの画面から残高を読み取り、チャージ画面までの遷移を補助します。読み取るのはモバイルICOCAアプリの画面だけで、他のアプリの内容は一切取得しません。カード番号・パスワード・認証情報は取得も保存もしません。決済の確認や本人認証は必ずあなた自身が行います。</string>
+
+    <!-- 通知チャンネル -->
+    <string name="channel_low_balance_name">残高低下のお知らせ</string>
+    <string name="channel_low_balance_desc">設定した残高を下回ったときに通知します</string>
+    <string name="channel_charge_ready_name">チャージ準備完了</string>
+    <string name="channel_charge_ready_desc">チャージの準備ができたときに通知します</string>
+    <string name="channel_result_name">チャージ結果</string>
+    <string name="channel_result_desc">チャージの完了・失敗を通知します</string>
+    <string name="channel_flow_name">チャージ処理中</string>
+    <string name="channel_flow_desc">チャージ処理を実行している間だけ表示されます</string>
+
+    <!-- 通知本文 -->
+    <string name="notif_low_balance_title">ICOCA残高が少なくなっています</string>
+    <string name="notif_low_balance_body">現在 %1$s。設定額 %2$s を下回りました。</string>
+    <string name="notif_low_balance_body_unknown">残高を取得できませんでした。ICOCAアプリで確認してください。</string>
+    <string name="notif_action_charge">チャージ</string>
+    <string name="notif_action_later">後で</string>
+
+    <string name="notif_ready_title">%1$s のチャージ準備ができました</string>
+    <string name="notif_ready_body">ICOCAアプリを開いてチャージを進めます。決済の確認はご自身で行ってください。</string>
+    <string name="notif_action_open_icoca">ICOCAを開く</string>
+
+    <string name="notif_success_title">ICOCAへのチャージが完了しました</string>
+    <string name="notif_success_body">%1$s → %2$s（+%3$s）</string>
+    <string name="notif_success_unverified_body">チャージ操作は完了しましたが、残高の再取得ができませんでした。ICOCAアプリでご確認ください。</string>
+
+    <string name="notif_error_title">ICOCAチャージを完了できませんでした</string>
+    <string name="notif_flow_title">ICOCAチャージを実行中です</string>
+    <string name="notif_flow_body">安全のため、決済の確認と本人認証はご自身で行ってください。</string>
+
+    <!-- ダッシュボード -->
+    <string name="dash_title">ICOCA Auto Charge</string>
+    <string name="dash_status">現在の状態</string>
+    <string name="dash_monitoring">監視</string>
+    <string name="dash_balance">残高</string>
+    <string name="dash_balance_unknown">未取得</string>
+    <string name="dash_settings">設定</string>
+    <string name="dash_threshold">チャージ開始残高</string>
+    <string name="dash_amount">チャージ金額</string>
+    <string name="dash_next_check">次回チェック</string>
+    <string name="dash_next_check_auto">自動</string>
+    <string name="dash_check_now">今すぐ確認</string>
+    <string name="dash_open_icoca">ICOCAを開く</string>
+    <string name="dash_enter_balance">残高を手入力</string>
+    <string name="dash_state">処理状態</string>
+    <string name="dash_last_check">最終チェック</string>
+    <string name="dash_balance_source">取得方法</string>
+    <string name="dash_never">なし</string>
+    <string name="dash_charge_now">今すぐチャージ</string>
+
+    <!-- 警告・案内 -->
+    <string name="warn_icoca_missing">モバイルICOCAアプリが見つかりません。Google Play からインストールしてください。</string>
+    <string name="warn_accessibility_off">自動操作を利用するにはAndroid設定からアクセシビリティを有効にしてください。</string>
+    <string name="warn_accessibility_open_settings">ユーザー補助の設定を開く</string>
+    <string name="warn_notification_off">通知が許可されていないため、残高低下をお知らせできません。</string>
+    <string name="warn_notification_request">通知を許可する</string>
+    <string name="warn_background_delay">Androidのバックグラウンド制限により、チェックの実行は設定した間隔より遅れることがあります。</string>
+    <string name="warn_no_balance_source">残高を自動取得できる手段がありません。手入力での運用になります。</string>
+
+    <!-- 設定画面 -->
+    <string name="set_title">設定</string>
+    <string name="set_monitoring">自動監視</string>
+    <string name="set_threshold">チャージ開始残高</string>
+    <string name="set_amount">チャージ金額</string>
+    <string name="set_daily_limit">1日の最大チャージ額</string>
+    <string name="set_monthly_limit">月間最大チャージ額</string>
+    <string name="set_interval">最低チャージ間隔</string>
+    <string name="set_interval_hours">%1$d時間</string>
+    <string name="set_confirm_before">チャージ前確認</string>
+    <string name="set_wifi_only">Wi-Fi時のみ</string>
+    <string name="set_charging_only">充電中のみ</string>
+    <string name="set_check_interval">残高チェック間隔</string>
+    <string name="set_automation">自動操作（ユーザー補助）</string>
+    <string name="set_automation_desc">ICOCAアプリのチャージ画面までの遷移と金額選択を補助します。決済と本人認証は必ずご自身で行います。</string>
+    <string name="set_section_basic">基本設定</string>
+    <string name="set_section_limits">上限</string>
+    <string name="set_section_conditions">実行条件</string>
+    <string name="set_section_automation">自動操作</string>
+    <string name="set_section_about">このアプリについて</string>
+    <string name="set_save">保存</string>
+    <string name="set_invalid_amount">金額が正しくありません</string>
+    <string name="set_amount_over_cap">ICOCAは1回20,000円まで、残高上限も20,000円です</string>
+
+    <!-- 自動操作の同意 -->
+    <string name="consent_title">自動操作について（必ずお読みください）</string>
+    <string name="consent_body">この機能を有効にすると、本アプリはAndroidのユーザー補助（アクセシビリティ）機能を使って、モバイルICOCAアプリの画面を読み取ります。\n\n・読み取る対象はモバイルICOCAアプリの画面のみです。他のアプリは一切見ません。\n・読み取った内容は残高の抽出と画面の判別にのみ使い、保存しません。\n・カード番号、セキュリティコード、パスワード、認証情報は取得も保存も送信もしません。\n・本アプリはネットワーク通信を行いません。\n・決済の確認、3Dセキュア、生体認証などの本人確認は自動化せず、必ずあなた自身が操作します。\n・想定外の画面を検知した場合、安全のため自動操作を停止します。\n\nまた、Android 17以降で「高度な保護モード」を有効にしている場合、この機能はOSによって無効化されます。その場合でも、通知からワンタップでICOCAアプリを開く運用は引き続き利用できます。</string>
+    <string name="consent_agree">理解して有効にする</string>
+    <string name="consent_cancel">やめておく</string>
+
+    <!-- 履歴画面 -->
+    <string name="hist_title">チャージ履歴</string>
+    <string name="hist_empty">履歴はまだありません</string>
+    <string name="hist_status_success">成功</string>
+    <string name="hist_status_success_unverified">成功（残高未確認）</string>
+    <string name="hist_status_failed">失敗</string>
+    <string name="hist_status_cancelled">キャンセル</string>
+    <string name="hist_status_in_progress">処理中</string>
+    <string name="hist_method">方法</string>
+    <string name="hist_confirmed">確認</string>
+    <string name="hist_yes">YES</string>
+    <string name="hist_no">NO</string>
+    <string name="hist_clear">履歴を消去</string>
+
+    <!-- Debug 画面 -->
+    <string name="dbg_title">Debug</string>
+    <string name="dbg_icoca_detect">ICOCAアプリ検出</string>
+    <string name="dbg_accessibility_state">Accessibility状態</string>
+    <string name="dbg_last_balance">最終残高</string>
+    <string name="dbg_last_check">最終チェック時刻</string>
+    <string name="dbg_last_charge">最終チャージ時刻</string>
+    <string name="dbg_state">現在のState</string>
+    <string name="dbg_work_state">WorkManager状態</string>
+    <string name="dbg_android_version">Androidバージョン</string>
+    <string name="dbg_app_version">アプリバージョン</string>
+    <string name="dbg_probe">exported コンポーネントを列挙</string>
+    <string name="dbg_dump">最後にダンプした画面</string>
+    <string name="dbg_dump_toggle">画面ダンプを記録</string>
+    <string name="dbg_dry_run">自動操作ドライラン</string>
+    <string name="dbg_nfc_read">NFC残高読み取り（物理カード）</string>
+    <string name="dbg_omapi">OMAPI 調査</string>
+    <string name="dbg_share">共有</string>
+    <string name="dbg_simulate_balance">残高を疑似設定</string>
+    <string name="dbg_reset_state">Stateをリセット</string>
+    <string name="dbg_run_check">監視を1回実行</string>
+
+    <!-- 共通 -->
+    <string name="common_on">ON</string>
+    <string name="common_off">OFF</string>
+    <string name="common_ok">OK</string>
+    <string name="common_cancel">キャンセル</string>
+    <string name="common_close">閉じる</string>
+    <string name="common_yen">¥%1$s</string>
+</resources>
