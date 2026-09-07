@@ -6,7 +6,9 @@
 |---|---|---|
 | Unit Test (JVM) | 開発環境で実行済み | **✅ 70件すべて成功** |
 | 変異テスト（テストの有効性確認） | 開発環境で実行済み | **✅ 2件の変異を検知** |
-| Gradle ビルド（Android 込み） | ローカル | **未実行** |
+| コンパイル（Compose UI を除く全 Kotlin） | 開発環境で実行済み | **✅ エラー0件 / 256クラス** |
+| コンパイル（Compose UI 7ファイル） | — | **未検証**（Compose 本体を取得できない） |
+| Gradle ビルド（依存解決込み） | ローカル | **未実行** |
 | Android Lint | ローカル | **未実行** |
 | 実機テスト (Pixel 8a) | 実機 | **未実施** |
 
@@ -23,6 +25,35 @@ Android SDK と AndroidX 依存を取得できないが、**`repo1.maven.org` �
   （スタブはソースツリーに含めていない）
 - 結果: **コンパイルエラー 0 件、テスト 70 件すべて成功**
 
+### コンパイル検証はどこまでできたか
+
+`repo1.maven.org` からは **Robolectric の `android-all` jar（API 36 = 本プロジェクトの compileSdk）**
+も取得できる。これは Android フレームワーク一式を含むため、`android.jar` の代わりに使える。
+加えて AndroidX（Room / DataStore / WorkManager / core-ktx / lifecycle）については、
+**本プロジェクトが実際に呼んでいる API の形だけを再現した最小スタブ**を書いた。
+
+これにより、**Compose UI 以外のすべての Kotlin ファイルを実際にコンパイルできた。**
+
+| 検証できたもの | 方法 |
+|---|---|
+| `core` / `domain` / `balance` / `icoca` / `accessibility` 全部 | Android 16 フレームワーク jar で実コンパイル |
+| `data.db`（Room）/ `data.settings`（DataStore）/ `data.repo` | AndroidX スタブ + 実コンパイル |
+| `monitor` 全部（司令塔・Worker・スケジューラ・Service・Activity） | 同上 |
+| `notify`（通知）/ `ServiceLocator` / `IcocaApp` / `MainViewModel` | 同上 |
+
+結果: **エラー0件、256クラス生成。**
+
+**限界（正直に記す）**
+
+- AndroidX 部分は「本物と同じシグネチャで書けているか」ではなく
+  「**自分が想定した API の形に対して整合しているか**」を検証したにすぎない。
+  想定そのものが間違っていれば見逃す。
+- **Compose UI の7ファイル（`ui/` と `MainActivity`）はコンパイルできていない。**
+  Compose ランタイムは `maven.google.com` にしか存在せず、代替経路が無いため。
+  代わりに import 漏れの機械的な走査を行い、
+  そこで見つかった実バグ（`SwitchRow` の引数順が trailing lambda を壊していた）を修正した。
+- Gradle の依存解決（`libs.versions.toml` に書いたバージョンが実在するか）は未検証。
+
 ### 変異テスト（テストが本当に効いているかの確認）
 
 「テストが全部通った」だけでは、テストが何も検証していない可能性を排除できない。
@@ -37,8 +68,10 @@ Android SDK と AndroidX 依存を取得できないが、**`repo1.maven.org` �
 
 JVM で動かせるのは純粋ロジックだけであり、**以下は未検証のまま**である。
 
-- Android 依存のコード（`AccessibilityService` / `Worker` / Room / DataStore / Compose UI）の**コンパイル**
+- **Compose UI 7ファイルのコンパイル**（`ui/dashboard` `ui/settings` `ui/history` `ui/debug`
+  `ui/common` `ui/theme` `MainActivity`）
 - Gradle の依存バージョンの整合（`gradle/libs.versions.toml` の数字が実在するか）
+- Room / DataStore / WorkManager の **本物の** シグネチャとの一致
 - Android Lint
 - 実機での挙動
 

@@ -95,8 +95,8 @@ fun DebugScreen(
         }
 
         SectionCard("実機検証（TECHNICAL_FEASIBILITY.md）") {
-            SwitchRow(stringResource(R.string.dbg_dump_toggle), dumpEnabled, onDumpEnabledChange)
-            SwitchRow(stringResource(R.string.dbg_dry_run), dryRun, onDryRunChange)
+            SwitchRow(stringResource(R.string.dbg_dump_toggle), dumpEnabled, onChange = onDumpEnabledChange)
+            SwitchRow(stringResource(R.string.dbg_dry_run), dryRun, onChange = onDryRunChange)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRunIcocaProbe, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.dbg_probe))

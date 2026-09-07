@@ -51,19 +51,22 @@ ICOCA公式アプリを起動
 |---|---|
 | 設計・実装 | 完了 |
 | Unit Test（純粋ロジック層 70件） | **✅ 全件成功**（変異テストでテストの有効性も確認済み） |
-| Gradle ビルド（Android 込み） | **未実行** |
+| コンパイル（Compose UI 以外の全 Kotlin） | **✅ エラー0件 / 256クラス** |
+| コンパイル（Compose UI 7ファイル） | **未検証** |
+| Gradle ビルド（依存解決込み） | **未実行** |
 | Android Lint | **未実行** |
 | 実機テスト（Pixel 8a） | **未実施** |
 
 > このプロジェクトは Android SDK に到達できないクラウド環境で実装されました。
 > `dl.google.com` / `maven.google.com` がネットワークポリシーで遮断されているためです。
 >
-> ただし `repo1.maven.org` には到達できたため、**Android に依存しない層
-> （判定エンジン・状態機械・上限計算・残高パーサ・画面分類・安全機構）だけを
-> 切り出してコンパイルし、Unit Test 70件を実際に実行して全件成功を確認しています。**
-> 詳細は [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) §0。
+> ただし `repo1.maven.org` には到達できたため、そこから
+> Kotlin コンパイラ・JUnit・**Android 16 のフレームワーク jar**（Robolectric の `android-all`）を取得し、
+> AndroidX 部分は最小スタブで補って、**Compose UI 以外のすべての Kotlin を実際にコンパイル
+> （エラー0件・256クラス）し、Unit Test 70件を実行して全件成功を確認しています。**
+> 詳細と限界は [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) §0。
 >
-> **未検証なのは Android 依存部分のコンパイル・Lint・実機動作です。**
+> **未検証なのは Compose UI 7ファイルのコンパイル・Gradle の依存解決・Lint・実機動作です。**
 > 下の手順で一度ビルドしてください。
 
 ---

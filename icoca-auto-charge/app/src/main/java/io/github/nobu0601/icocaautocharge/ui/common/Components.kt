@@ -51,8 +51,15 @@ fun LabeledValue(label: String, value: String, emphasis: Boolean = false) {
     }
 }
 
+// onChange は末尾に置く。ここに既定値付きの引数を置くと、
+// SwitchRow(label, checked) { ... } という trailing lambda 呼び出しができなくなる。
 @Composable
-fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, enabled: Boolean = true) {
+fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,

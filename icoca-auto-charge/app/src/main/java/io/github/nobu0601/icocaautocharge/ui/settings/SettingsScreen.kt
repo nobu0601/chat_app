@@ -167,11 +167,12 @@ private fun YenField(label: String, value: Int, onChange: (Int) -> Unit) {
             text = digits
             digits.toIntOrNull()?.let(onChange)
         },
-        label = { Text(label) },
+        // 単位は suffix ではなくラベルに含める。suffix は Material3 の
+        // バージョンによって有無が変わるため、依存を増やさない。
+        label = { Text("$label（円）") },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
-        suffix = { Text("円") },
     )
 }
 
