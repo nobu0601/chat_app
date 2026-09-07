@@ -61,6 +61,19 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    testOptions {
+        unitTests {
+            // Unit Test では android.jar がスタブなので、android.util.Log などを
+            // 呼ぶと既定で「not mocked」例外になる。SecureLog を経由するコード
+            // （SafetyGuard など）を JVM で検証したいので、既定値を返させる。
+            //
+            // 副作用として未モックの Android API が黙って既定値を返すようになるが、
+            // このプロジェクトの Unit Test が触れる Android API は Log だけで、
+            // それ以外のロジックは Android 非依存に切り出してある。
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 kotlin {

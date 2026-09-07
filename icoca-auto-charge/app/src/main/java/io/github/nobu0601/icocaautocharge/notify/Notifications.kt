@@ -200,8 +200,16 @@ class Notifications(private val context: Context) {
             SecureLog.w(SecureLog.Tag.MONITOR, "notification permission not granted; skipped id=$id")
             return
         }
-        runCatching { manager.notify(id, notification) }
-            .onFailure { SecureLog.e("failed to post notification id=$id", it) }
+        // canPost() で確認したあとにユーザーが権限を取り消す可能性があるため、
+        // SecurityException は握って落ちないようにする。
+        // （lint の MissingPermission も、この明示的な処理を求めている）
+        try {
+            manager.notify(id, notification)
+        } catch (e: SecurityException) {
+            SecureLog.w(SecureLog.Tag.MONITOR, "notification rejected by permission; id=$id", e)
+        } catch (e: Exception) {
+            SecureLog.e("failed to post notification id=$id", e)
+        }
     }
 
     companion object {
