@@ -2,6 +2,7 @@ package io.github.nobu0601.icocaautocharge.accessibility
 
 import io.github.nobu0601.icocaautocharge.core.IcocaConstants
 import io.github.nobu0601.icocaautocharge.core.SecureLog
+import io.github.nobu0601.icocaautocharge.core.TextNormalizer
 import io.github.nobu0601.icocaautocharge.domain.ErrorReason
 
 /**
@@ -96,8 +97,8 @@ class SafetyGuard(
      */
     fun verifyAmountLabel(label: String?, expectedYen: Int): Boolean {
         if (label == null) return false
-        val normalized = NodeFinder.normalize(label)
-        return amountLabelVariants(expectedYen).any { NodeFinder.normalize(it) == normalized }
+        val normalized = TextNormalizer.normalize(label)
+        return amountLabelVariants(expectedYen).any { TextNormalizer.normalize(it) == normalized }
     }
 
     /** 「5,000円」「¥5,000」「5000円」…といった表記ゆれ。 */

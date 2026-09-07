@@ -1,6 +1,7 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
 import android.view.accessibility.AccessibilityNodeInfo
+import io.github.nobu0601.icocaautocharge.core.TextNormalizer
 
 /**
  * `AccessibilityNodeInfo` の走査ユーティリティ。
@@ -50,9 +51,10 @@ object NodeFinder {
         root: AccessibilityNodeInfo?,
         candidates: Collection<String>,
     ): AccessibilityNodeInfo? {
-        val normalized = candidates.map { normalize(it) }.toSet()
+        val normalized = candidates.map { TextNormalizer.normalize(it) }.toSet()
         return walk(root).firstOrNull { node ->
-            val text = visibleText(node)?.let { normalize(it) } ?: return@firstOrNull false
+            val text = visibleText(node)?.let { TextNormalizer.normalize(it) }
+                ?: return@firstOrNull false
             text in normalized && isClickableSelfOrAncestor(node) != null
         }?.let { isClickableSelfOrAncestor(it) }
     }
@@ -79,17 +81,6 @@ object NodeFinder {
         }
         return null
     }
-
-    /** 全角・半角、空白、通貨記号のゆれを吸収して比較できる形にする。 */
-    fun normalize(s: String): String =
-        s.trim()
-            .replace('￥', '¥')
-            .replace('，', ',')
-            .replace(Regex("[\\s ]+"), "")
-            .let { text -> text.map { toHalfWidthDigit(it) }.joinToString("") }
-
-    private fun toHalfWidthDigit(c: Char): Char =
-        if (c in '０'..'９') ('0' + (c - '０')) else c
 
     private const val MAX_NODES = 600
     private const val MAX_DEPTH = 40

@@ -4,18 +4,51 @@
 
 | 種別 | 実行環境 | 状態 |
 |---|---|---|
-| Unit Test (JVM) | ローカル / CI | **実装済み・未実行**（本開発環境から Maven/Google のリポジトリへ到達できずビルド不可） |
-| Android Lint | ローカル | **未実行**（同上） |
+| Unit Test (JVM) | 開発環境で実行済み | **✅ 70件すべて成功** |
+| 変異テスト（テストの有効性確認） | 開発環境で実行済み | **✅ 2件の変異を検知** |
+| Gradle ビルド（Android 込み） | ローカル | **未実行** |
+| Android Lint | ローカル | **未実行** |
 | 実機テスト (Pixel 8a) | 実機 | **未実施** |
 
-> 本開発環境（クラウドコンテナ）は `dl.google.com` / `maven.google.com` へのアクセスがプロキシで
-> 遮断されており、Android SDK と AndroidX 依存を取得できない。
-> したがって **コンパイル・Lint・Unit Test の実行はローカル環境で行う必要がある**。
-> 手順は `README.md`「ビルドとインストール」を参照。
+### Unit Test はどう実行したか
+
+本開発環境（クラウドコンテナ）は `dl.google.com` / `maven.google.com` が遮断されており
+Android SDK と AndroidX 依存を取得できないが、**`repo1.maven.org` には到達できる**。
+そこで Kotlin コンパイラと JUnit を Maven Central から取得し、
+**Android に依存しない層だけを切り出してコンパイル・実行した。**
+
+- コンパイル対象: `core` / `domain` / `data.settings.AppSettings` /
+  `balance.BalanceTextParser` / `accessibility.ScreenClassifier` / `accessibility.SafetyGuard`
+- `SecureLog` が使う `android.util.Log` と `BuildConfig` のみ、検証用のスタブで置き換えた
+  （スタブはソースツリーに含めていない）
+- 結果: **コンパイルエラー 0 件、テスト 70 件すべて成功**
+
+### 変異テスト（テストが本当に効いているかの確認）
+
+「テストが全部通った」だけでは、テストが何も検証していない可能性を排除できない。
+そこで意図的にロジックを壊し、テストが失敗することを確認した。
+
+| 変異 | 結果 |
+|---|---|
+| 閾値判定を `balance >= threshold` → `balance > threshold` に改変（境界の壊し） | **検知（1件失敗）** |
+| 二重チャージ防止の「進行中の試行があれば新規に作らない」判定を無効化 | **検知（1件失敗）** |
+
+### まだ検証できていないこと
+
+JVM で動かせるのは純粋ロジックだけであり、**以下は未検証のまま**である。
+
+- Android 依存のコード（`AccessibilityService` / `Worker` / Room / DataStore / Compose UI）の**コンパイル**
+- Gradle の依存バージョンの整合（`gradle/libs.versions.toml` の数字が実在するか）
+- Android Lint
+- 実機での挙動
+
+したがって **ローカルで一度 `./gradlew :app:assembleDebug` を通す必要がある**。
+手順は `README.md`「ビルドとインストール」を参照。
 
 ## 1. Unit Test（JVM・実装済み）
 
 `app/src/test/java/.../` に配置。`./gradlew :app:testDebugUnitTest` で実行。
+**全70件が成功済み**（実行方法は §0 を参照）。
 
 ### 1.1 `ChargeDecisionEngineTest`
 
