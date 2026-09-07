@@ -1,0 +1,72 @@
+# icoca-auto-charge のビルド検証。
+#
+# 開発に使っているクラウド環境からは maven.google.com へ到達できず、
+# Android SDK も AndroidX も取得できない。GitHub のランナーは両方使えるので、
+# コンパイル・Unit Test・Lint はここで回す。
+name: icoca-auto-charge
+
+on:
+  push:
+    paths:
+      - 'icoca-auto-charge/**'
+      - '.github/workflows/icoca-auto-charge.yml'
+  pull_request:
+    paths:
+      - 'icoca-auto-charge/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: icoca-auto-charge
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # 失敗しても後続を走らせる。エラーを1回のログでまとめて見たいため。
+      - name: Compile (assembleDebug)
+        id: assemble
+        continue-on-error: true
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Unit tests
+        id: tests
+        continue-on-error: true
+        run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest
+
+      - name: Android Lint
+        id: lint
+        continue-on-error: true
+        run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+
+      - name: Upload reports and APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: icoca-auto-charge-reports
+          if-no-files-found: ignore
+          path: |
+            icoca-auto-charge/app/build/reports/**
+            icoca-auto-charge/app/build/outputs/apk/debug/*.apk
+
+      - name: Fail if any step failed
+        if: >-
+          steps.assemble.outcome == 'failure' ||
+          steps.tests.outcome == 'failure' ||
+          steps.lint.outcome == 'failure'
+        run: |
+          echo "assemble=${{ steps.assemble.outcome }}"
+          echo "tests=${{ steps.tests.outcome }}"
+          echo "lint=${{ steps.lint.outcome }}"
+          exit 1
