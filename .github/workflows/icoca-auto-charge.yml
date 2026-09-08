@@ -15,6 +15,10 @@ on:
       - 'icoca-auto-charge/**'
   workflow_dispatch:
 
+# APK を Release に添付するために必要。
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -49,6 +53,26 @@ jobs:
         id: lint
         continue-on-error: true
         run: ./gradlew --no-daemon --stacktrace :app:lintDebug
+
+      # artifact はログインが必要なうえ zip 越しで、スマホから取りにくい。
+      # 実機検証用に、素の .apk を Release に置いて直リンクで取れるようにする。
+      # タグは毎回作り直すので、常に「いまビルドしたコミット」を指す。
+      - name: Publish the debug APK as a release asset
+        if: steps.assemble.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp app/build/outputs/apk/debug/app-debug.apk icoca-auto-charge-debug.apk
+          gh release delete debug-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+          gh release create debug-latest \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "icoca-auto-charge debug build" \
+            --notes "実機検証用の debug ビルド。push のたびに差し替わります。commit ${GITHUB_SHA}" \
+            --prerelease
+          gh release upload debug-latest icoca-auto-charge-debug.apk \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Upload reports and APK
         if: always()

@@ -73,8 +73,11 @@ ICOCA公式アプリを起動
 - Android Studio（Ladybug 以降推奨） または JDK 17 + Android SDK (API 36)
 - Pixel 8a（USB デバッグを有効化）
 
-> **ローカルでビルドする必要はありません。** GitHub Actions の実行ページから
-> artifact `icoca-auto-charge-reports` をダウンロードすれば debug APK が入っています。
+> **ローカルでビルドする必要はありません。** 最新の debug APK は Release から
+> ログイン不要で直接ダウンロードできます（push のたびに差し替わります）:
+>
+> **https://github.com/nobu0601/chat_app/releases/download/debug-latest/icoca-auto-charge-debug.apk**
+>
 > 以下は手元でビルドしたい場合の手順です。
 
 ### 手順
