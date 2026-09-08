@@ -4,13 +4,26 @@
 
 | 種別 | 実行環境 | 状態 |
 |---|---|---|
-| Unit Test (JVM) | 開発環境で実行済み | **✅ 70件すべて成功** |
-| 変異テスト（テストの有効性確認） | 開発環境で実行済み | **✅ 2件の変異を検知** |
-| コンパイル（Compose UI を除く全 Kotlin） | 開発環境で実行済み | **✅ エラー0件 / 256クラス** |
-| コンパイル（Compose UI 7ファイル） | — | **未検証**（Compose 本体を取得できない） |
-| Gradle ビルド（依存解決込み） | ローカル | **未実行** |
-| Android Lint | ローカル | **未実行** |
-| 実機テスト (Pixel 8a) | 実機 | **未実施** |
+| **Gradle ビルド `assembleDebug`（依存解決・Compose 込み）** | **GitHub Actions** | **✅ 成功** |
+| **Unit Test `testDebugUnitTest`** | **GitHub Actions** | **✅ 70件すべて成功** |
+| **Android Lint `lintDebug`** | **GitHub Actions** | **✅ エラー0件**（警告36件） |
+| 変異テスト（テストの有効性確認） | 開発環境 | ✅ 2件の変異を検知 |
+| 実機テスト (Pixel 8a) | 実機 | **未実施 ← 残っているのはこれだけ** |
+
+CI: [`.github/workflows/icoca-auto-charge.yml`](../../.github/workflows/icoca-auto-charge.yml)。
+push のたびにコンパイル・Unit Test・Lint が回り、debug APK と各レポートが
+artifact `icoca-auto-charge-reports` として保存される。
+
+### CI で見つかった問題（修正済み）
+
+開発環境の JVM 検証だけでは見つからず、CI で初めて出たもの。
+
+| 問題 | 原因 | 対処 |
+|---|---|---|
+| `SafetyGuardTest` の停止系5件が失敗 | Android の Unit Test では `android.util.Log` が既定で例外を投げる。開発環境では Log を動くスタブに差し替えていたため通っていた | `testOptions { unitTests.isReturnDefaultValues = true }` |
+| Lint `MissingPermission` | `manager.notify()` の権限チェックが別メソッド（`canPost()`）にあり lint が追えない | `notify()` を `try/catch (SecurityException)` で囲んだ。権限は `canPost()` の後に取り消されうるので、コードとしても改善 |
+
+### 変異テスト（テストが本当に効いているかの確認）
 
 ### Unit Test はどう実行したか
 
@@ -54,8 +67,6 @@ Android SDK と AndroidX 依存を取得できないが、**`repo1.maven.org` �
   そこで見つかった実バグ（`SwitchRow` の引数順が trailing lambda を壊していた）を修正した。
 - Gradle の依存解決（`libs.versions.toml` に書いたバージョンが実在するか）は未検証。
 
-### 変異テスト（テストが本当に効いているかの確認）
-
 「テストが全部通った」だけでは、テストが何も検証していない可能性を排除できない。
 そこで意図的にロジックを壊し、テストが失敗することを確認した。
 
@@ -66,17 +77,10 @@ Android SDK と AndroidX 依存を取得できないが、**`repo1.maven.org` �
 
 ### まだ検証できていないこと
 
-JVM で動かせるのは純粋ロジックだけであり、**以下は未検証のまま**である。
+**実機での挙動だけ。** コンパイル・依存解決・Unit Test・Lint は CI で確定済み。
 
-- **Compose UI 7ファイルのコンパイル**（`ui/dashboard` `ui/settings` `ui/history` `ui/debug`
-  `ui/common` `ui/theme` `MainActivity`）
-- Gradle の依存バージョンの整合（`gradle/libs.versions.toml` の数字が実在するか）
-- Room / DataStore / WorkManager の **本物の** シグネチャとの一致
-- Android Lint
-- 実機での挙動
-
-したがって **ローカルで一度 `./gradlew :app:assembleDebug` を通す必要がある**。
-手順は `README.md`「ビルドとインストール」を参照。
+特に未確定なのは `TECHNICAL_FEASIBILITY.md` §3.3
+「ICOCAアプリの画面をユーザー補助で読めるか」で、これがこのプロジェクト最大の未確定事項。
 
 ## 1. Unit Test（JVM・実装済み）
 

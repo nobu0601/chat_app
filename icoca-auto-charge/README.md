@@ -50,24 +50,19 @@ ICOCA公式アプリを起動
 | 項目 | 状態 |
 |---|---|
 | 設計・実装 | 完了 |
-| Unit Test（純粋ロジック層 70件） | **✅ 全件成功**（変異テストでテストの有効性も確認済み） |
-| コンパイル（Compose UI 以外の全 Kotlin） | **✅ エラー0件 / 256クラス** |
-| コンパイル（Compose UI 7ファイル） | **未検証** |
-| Gradle ビルド（依存解決込み） | **未実行** |
-| Android Lint | **未実行** |
-| 実機テスト（Pixel 8a） | **未実施** |
+| ビルド `assembleDebug` | **✅ 成功**（CI） |
+| Unit Test（70件） | **✅ 全件成功**（CI。変異テストで有効性も確認済み） |
+| Android Lint | **✅ エラー0件**（CI。警告36件） |
+| 実機テスト（Pixel 8a） | **未実施 ← 残っているのはこれだけ** |
 
-> このプロジェクトは Android SDK に到達できないクラウド環境で実装されました。
-> `dl.google.com` / `maven.google.com` がネットワークポリシーで遮断されているためです。
+> このプロジェクトは Android SDK に到達できないクラウド環境で実装されたため、
+> ビルド・テスト・Lint は **GitHub Actions**
+> （[`.github/workflows/icoca-auto-charge.yml`](../.github/workflows/icoca-auto-charge.yml)）で回しています。
+> push のたびに実行され、debug APK とレポートが artifact `icoca-auto-charge-reports` に保存されます。
 >
-> ただし `repo1.maven.org` には到達できたため、そこから
-> Kotlin コンパイラ・JUnit・**Android 16 のフレームワーク jar**（Robolectric の `android-all`）を取得し、
-> AndroidX 部分は最小スタブで補って、**Compose UI 以外のすべての Kotlin を実際にコンパイル
-> （エラー0件・256クラス）し、Unit Test 70件を実行して全件成功を確認しています。**
-> 詳細と限界は [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) §0。
->
-> **未検証なのは Compose UI 7ファイルのコンパイル・Gradle の依存解決・Lint・実機動作です。**
-> 下の手順で一度ビルドしてください。
+> **残っているのは実機での動作確認だけです。** 特に
+> 「ICOCAアプリの画面をユーザー補助で読めるか」（[`docs/TECHNICAL_FEASIBILITY.md`](docs/TECHNICAL_FEASIBILITY.md) §3.3）
+> が、このプロジェクト最大の未確定事項です。
 
 ---
 
@@ -77,6 +72,10 @@ ICOCA公式アプリを起動
 
 - Android Studio（Ladybug 以降推奨） または JDK 17 + Android SDK (API 36)
 - Pixel 8a（USB デバッグを有効化）
+
+> **ローカルでビルドする必要はありません。** GitHub Actions の実行ページから
+> artifact `icoca-auto-charge-reports` をダウンロードすれば debug APK が入っています。
+> 以下は手元でビルドしたい場合の手順です。
 
 ### 手順
 
