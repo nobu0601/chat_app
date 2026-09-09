@@ -129,13 +129,34 @@ class ChargeFlowCoordinator(
      *  - ICOCA アプリがインストールされている
      */
     private suspend fun tryAutoStart(settings: AppSettings, now: Long): Boolean {
-        if (settings.confirmBeforeCharge) return false
-        if (!settings.automationEnabled || !settings.automationConsented) return false
-        if (!launcher.isInstalled()) return false
-        val service = AccessibilityBridge.service() ?: run {
+        // 4つの条件はどれも独立に false になりうる。無言で諦めると、
+        // 「なぜ自動起動しなかったか」が logcat からもまったく分からなくなるため、
+        // 通る／通らないをすべて記録する。
+        if (settings.confirmBeforeCharge) {
+            SecureLog.i(SecureLog.Tag.AUTOMATION, "auto start skipped: confirmBeforeCharge is ON")
+            return false
+        }
+        if (!settings.automationEnabled || !settings.automationConsented) {
             SecureLog.i(
                 SecureLog.Tag.AUTOMATION,
-                "auto start requested but the accessibility service is not running",
+                "auto start skipped: automationEnabled=${settings.automationEnabled} " +
+                    "automationConsented=${settings.automationConsented}",
+            )
+            return false
+        }
+        if (!launcher.isInstalled()) {
+            SecureLog.i(SecureLog.Tag.AUTOMATION, "auto start skipped: ICOCA app not installed")
+            return false
+        }
+        // 最も見落としやすい原因: Android は APK の再インストールのたびに
+        // ユーザー補助サービスの許可を自動的に無効化する。設定はアプリの再インストールを
+        // またいで残るので、この条件だけが再インストール後に毎回落ちがちになる。
+        val service = AccessibilityBridge.service() ?: run {
+            SecureLog.w(
+                SecureLog.Tag.AUTOMATION,
+                "auto start skipped: accessibility service is not connected " +
+                    "(re-enable it in Android Settings > ユーザー補助 — " +
+                    "reinstalling the app revokes this grant)",
             )
             return false
         }
