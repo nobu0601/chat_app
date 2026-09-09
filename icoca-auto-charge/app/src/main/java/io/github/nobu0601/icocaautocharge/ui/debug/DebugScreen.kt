@@ -98,6 +98,18 @@ fun DebugScreen(
         SectionCard("実機検証（TECHNICAL_FEASIBILITY.md）") {
             SwitchRow(stringResource(R.string.dbg_dump_toggle), dumpEnabled, onChange = onDumpEnabledChange)
             SwitchRow(stringResource(R.string.dbg_dry_run), dryRun, onChange = onDryRunChange)
+            if (dryRun) {
+                // ここで見落とされると「なぜ決済確定まで進まないのか」が分からなくなる。
+                // ドライラン中はチャージ画面への遷移も金額選択も、そして決済の確定ボタンも
+                // 一切クリックしない（ログに「押す予定」を記録するだけ）。
+                Text(
+                    "ドライラン中は、決済の確定ボタンを含めて実際のクリックは一切行われません。" +
+                        "「押す予定だった」という記録がログに残るだけです。" +
+                        "本当にチャージを完了させたい場合はOFFにしてください。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRunIcocaProbe, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.dbg_probe))
