@@ -123,6 +123,18 @@ class FlowStateRepository(private val context: Context) {
         }
     }
 
+    /**
+     * クールダウンの起点を消す。**テスト目的の Debug 専用機能。**
+     *
+     * [clearAttempt] とは別に用意している。[clearAttempt] は「詰まった状態から
+     * 抜け出す」ためのものであり、クールダウン（二重チャージ防止の最後の砦）まで
+     * 一緒に消してしまうと、ボタンの意味が利用者に伝わらないまま安全機構が弱まる。
+     * クールダウンを消す操作は、それ専用の名前を持つ別のボタンとして明示する。
+     */
+    suspend fun clearCooldown() {
+        context.flowStateDataStore.edit { p -> p.remove(Keys.lastTerminalAt) }
+    }
+
     suspend fun saveBalance(reading: BalanceReading) {
         context.flowStateDataStore.edit { p ->
             p[Keys.lastBalance] = reading.balanceYen

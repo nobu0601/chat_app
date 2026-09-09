@@ -454,10 +454,23 @@ class ChargeFlowCoordinator(
         SecureLog.i(SecureLog.Tag.MONITOR, "user postponed; cooldown starts")
     }
 
-    /** ユーザー操作で強制的に IDLE へ戻す（Debug 画面）。 */
+    /** ユーザー操作で強制的に IDLE へ戻す（Debug 画面）。クールダウンは意図的に消さない。 */
     suspend fun resetState() = mutex.withLock {
         flowState.clearAttempt()
         SecureLog.i(SecureLog.Tag.MONITOR, "state reset by user")
+    }
+
+    /**
+     * クールダウンを解除する（Debug 画面・テスト専用）。
+     *
+     * 検知〜完了までの一連のテストを1回行うと、次のテストまで
+     * 最低チャージ間隔（既定6時間）待たされる。実機テストのたびに
+     * 何時間も待てないので、明示的なボタンとして用意している。
+     * [resetState] とは別のログで、いつ・誰が解除したかを追える形にする。
+     */
+    suspend fun clearCooldownForTesting() = mutex.withLock {
+        flowState.clearCooldown()
+        SecureLog.w(SecureLog.Tag.MONITOR, "cooldown cleared via Debug screen (testing only)")
     }
 
     /** 放置された試行を終端に落とす（ARCHITECTURE §3.1-4）。 */

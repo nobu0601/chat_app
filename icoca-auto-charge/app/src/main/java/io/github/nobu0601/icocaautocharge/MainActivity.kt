@@ -280,6 +280,7 @@ private fun AppRoot(
                     onStartNfcRead = onStartNfcRead,
                     onSimulateBalance = { viewModel.submitSimulatedBalance(it) },
                     onResetState = { viewModel.resetState() },
+                    onClearCooldown = { viewModel.clearCooldown() },
                     onRunCheck = { viewModel.checkNow() },
                 )
             }

@@ -195,6 +195,12 @@ class MainViewModel(private val locator: ServiceLocator) : ViewModel() {
         transient.value = transient.value.copy(message = "状態をリセットしました")
     }
 
+    /** クールダウンを解除する（テスト専用）。実機テストを繰り返すたびに6時間待たずに済む。 */
+    fun clearCooldown() = viewModelScope.launch {
+        locator.coordinator.clearCooldownForTesting()
+        transient.value = transient.value.copy(message = "クールダウンを解除しました")
+    }
+
     fun consumeMessage() {
         transient.value = transient.value.copy(message = null)
     }

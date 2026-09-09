@@ -138,6 +138,7 @@
     <string name="dbg_share">共有</string>
     <string name="dbg_simulate_balance">残高を疑似設定</string>
     <string name="dbg_reset_state">Stateをリセット</string>
+    <string name="dbg_clear_cooldown">クールダウン解除（テスト用）</string>
     <string name="dbg_run_check">監視を1回実行</string>
 
     <!-- 共通 -->

@@ -54,6 +54,7 @@ fun DebugScreen(
     onStartNfcRead: () -> Unit,
     onSimulateBalance: (Int) -> Unit,
     onResetState: () -> Unit,
+    onClearCooldown: () -> Unit,
     onRunCheck: () -> Unit,
 ) {
     Column(
@@ -156,6 +157,15 @@ fun DebugScreen(
                     Text(stringResource(R.string.dbg_reset_state))
                 }
             }
+            OutlinedButton(onClick = onClearCooldown, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.dbg_clear_cooldown))
+            }
+            Text(
+                "検知〜完了まで1回テストすると、次のテストまで最低チャージ間隔（設定値。既定6時間）" +
+                    "待たされます。「クールダウン解除」はそれをテスト用に無視するボタンで、" +
+                    "実際のチャージ動作には影響しません。",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }
