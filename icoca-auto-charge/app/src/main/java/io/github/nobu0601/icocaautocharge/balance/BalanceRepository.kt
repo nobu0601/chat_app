@@ -81,6 +81,9 @@ class BalanceRepository(
 
     /** どの手段も使えない状態か。UI に「手入力での運用になります」と出すために使う。 */
     suspend fun hasAutomaticSource(): Boolean = ordered.any {
-        it.type != BalanceSourceType.MANUAL && runCatching { it.isAvailable() }.getOrDefault(false)
+        // MANUAL（手入力）と SIMULATED（Debugの一時上書き）は「自動取得」に数えない
+        it.type != BalanceSourceType.MANUAL &&
+            it.type != BalanceSourceType.SIMULATED &&
+            runCatching { it.isAvailable() }.getOrDefault(false)
     }
 }

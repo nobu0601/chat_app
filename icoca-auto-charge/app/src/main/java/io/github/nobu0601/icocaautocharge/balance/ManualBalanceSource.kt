@@ -11,6 +11,10 @@ import io.github.nobu0601.icocaautocharge.domain.BalanceSourceType
  * ただし手入力値は乗車のたびに古くなるため、
  * [io.github.nobu0601.icocaautocharge.data.settings.AppSettings.balanceMaxAgeHours] を超えたら
  * 判定側で「不明」として扱われる。
+ *
+ * Debug の疑似値はここでは扱わない。[SimulatedBalanceSource] が別枠で持ち、
+ * 使ったら消える1回限りの値として扱う（テスト値がチャージ後の確認まで
+ * 残ってしまわないようにするため）。
  */
 class ManualBalanceSource(private val flowState: FlowStateRepository) : BalanceSource {
 
@@ -22,11 +26,6 @@ class ManualBalanceSource(private val flowState: FlowStateRepository) : BalanceS
 
     override suspend fun read(): BalanceReading? {
         val last = flowState.currentLastBalance() ?: return null
-        // 手入力・疑似値以外は他のソースが返すべきなので、ここでは扱わない
-        return if (last.source == BalanceSourceType.MANUAL || last.source == BalanceSourceType.SIMULATED) {
-            last
-        } else {
-            null
-        }
+        return if (last.source == BalanceSourceType.MANUAL) last else null
     }
 }

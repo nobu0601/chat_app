@@ -56,8 +56,21 @@ enum class ErrorReason {
     UNKNOWN,
 }
 
-/** 残高をどの手段で得たか。数字が小さいほど信頼度が高い（指示書 §4 の優先順位）。 */
+/**
+ * 残高をどの手段で得たか。数字が小さいほど信頼度が高い（指示書 §4 の優先順位）。
+ *
+ * [SIMULATED] だけは例外で、「信頼度」ではなく「テスト時にどれだけ優先して使いたいか」を表す。
+ * Debug 画面の「残高を疑似設定」で明示的に上書きした値が、キャッシュ済みの実残高
+ * （例: ユーザー補助が直前に読んだ ACCESSIBILITY の値）に負けてしまうと、
+ * 低残高検知のテストが実質できなくなる。そのため全ソース中で最優先にしてある。
+ * 実害が出ないのは、この値を返す `SimulatedBalanceSource` が
+ * 「明示的に設定され、かつ一度も使われていない」ときしか利用可能を返さず、
+ * 使われた瞬間に消費されるため（`FlowStateRepository.consumeDebugOverride`）。
+ */
 enum class BalanceSourceType(val priority: Int) {
+    /** Debug 画面から注入した1回限りの疑似値。使うと消える。リリースビルドの UI からは到達できない。 */
+    SIMULATED(-1),
+
     /** 公式 API。存在しないため未使用。 */
     OFFICIAL_API(0),
 
@@ -72,7 +85,4 @@ enum class BalanceSourceType(val priority: Int) {
 
     /** ユーザーの手入力。常に利用できる Fallback。 */
     MANUAL(4),
-
-    /** Debug 画面から注入した疑似値。リリースビルドでは使わない。 */
-    SIMULATED(9),
 }

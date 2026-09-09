@@ -143,6 +143,11 @@ fun DebugScreen(
 
         SectionCard("テスト操作") {
             SimulateBalanceRow(onSimulateBalance)
+            Text(
+                "設定した値は「監視を1回実行」を押した瞬間に1回だけ使われ、その後は自動的に消えます。" +
+                    "ユーザー補助が読んだ実際の残高より必ず優先されるので、安全に低残高のテストができます。",
+                style = MaterialTheme.typography.bodySmall,
+            )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRunCheck, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.dbg_run_check))

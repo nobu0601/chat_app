@@ -168,11 +168,21 @@ class MainViewModel(private val locator: ServiceLocator) : ViewModel() {
         transient.value = transient.value.copy(message = "カードから残高を読み取りました")
     }
 
+    /**
+     * 疑似残高を設定する。
+     *
+     * 直接 [locator.balanceRepo] へ書き込むのではなく [FlowStateRepository.setDebugOverride]
+     * を使う。こうすることで「監視を1回実行」を押すまでは値がチェーンに現れず、
+     * 実行した瞬間に**1回だけ**最優先で使われて消える
+     * （[io.github.nobu0601.icocaautocharge.balance.SimulatedBalanceSource] 参照）。
+     * これにより、ユーザー補助が直前に読んだ実際の残高に負けて
+     * テストにならない、という事故を防いでいる。
+     */
     fun submitSimulatedBalance(yen: Int) = viewModelScope.launch {
-        locator.balanceRepo.submit(
-            BalanceReading(yen, System.currentTimeMillis(), BalanceSourceType.SIMULATED),
+        locator.flowState.setDebugOverride(yen, System.currentTimeMillis())
+        transient.value = transient.value.copy(
+            message = "疑似残高${yen}円を設定しました。「監視を1回実行」を押すと1回だけ使われます。",
         )
-        transient.value = transient.value.copy(message = "疑似残高を設定しました")
     }
 
     fun clearHistory() = viewModelScope.launch {

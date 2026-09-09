@@ -54,6 +54,17 @@ class FlowStateRepository(private val context: Context) {
 
         /** 初回に検出した ICOCA アプリの署名。なりすまし検知に使う。 */
         val icocaSignature = stringPreferencesKey("icoca_signature")
+
+        /**
+         * Debug 画面の「残高を疑似設定」による1回限りの上書き。
+         *
+         * [lastBalance] とは別の場所に持つ。ここに値がある間だけ
+         * `SimulatedBalanceSource` が有効になり、次の `refresh()` で消費されて消える。
+         * 消費後は通常のチェーン（ユーザー補助・手入力）に戻るので、
+         * チャージ後の残高確認（verifyNow）が古いテスト値を拾い続けることはない。
+         */
+        val debugOverrideYen = intPreferencesKey("debug_override_yen")
+        val debugOverrideAt = longPreferencesKey("debug_override_at")
     }
 
     val attempt: Flow<ChargeAttempt?> = context.flowStateDataStore.data.map { it.toAttempt() }
@@ -134,6 +145,38 @@ class FlowStateRepository(private val context: Context) {
         context.flowStateDataStore.edit { p ->
             if (p[Keys.icocaSignature] == null) p[Keys.icocaSignature] = signature
         }
+    }
+
+    /** 疑似残高を設定する。次に消費されるまで、通常のチェーンより優先して使われる。 */
+    suspend fun setDebugOverride(yen: Int, now: Long) {
+        context.flowStateDataStore.edit { p ->
+            p[Keys.debugOverrideYen] = yen
+            p[Keys.debugOverrideAt] = now
+        }
+    }
+
+    /** 疑似残高が設定されたままか（まだ消費されていないか）。 */
+    suspend fun hasDebugOverride(): Boolean =
+        context.flowStateDataStore.data.first()[Keys.debugOverrideYen] != null
+
+    /**
+     * 疑似残高を読み出し、同時に消す。
+     *
+     * 「読んだら消える」ことが重要。これが無いと、テスト用に入れた値が
+     * チャージ後の残高確認（verifyNow）でも使われ続け、実際の結果を隠してしまう。
+     */
+    suspend fun consumeDebugOverride(): BalanceReading? {
+        var result: BalanceReading? = null
+        context.flowStateDataStore.edit { p ->
+            val yen = p[Keys.debugOverrideYen]
+            val at = p[Keys.debugOverrideAt]
+            if (yen != null && at != null) {
+                result = BalanceReading(yen, at, BalanceSourceType.SIMULATED)
+            }
+            p.remove(Keys.debugOverrideYen)
+            p.remove(Keys.debugOverrideAt)
+        }
+        return result
     }
 
     suspend fun saveCheckedAt(millis: Long, skipReason: String?) {

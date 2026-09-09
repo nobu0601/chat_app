@@ -6,6 +6,7 @@ import io.github.nobu0601.icocaautocharge.balance.BalanceRepository
 import io.github.nobu0601.icocaautocharge.balance.IntentBalanceSource
 import io.github.nobu0601.icocaautocharge.balance.ManualBalanceSource
 import io.github.nobu0601.icocaautocharge.balance.SecureElementProbe
+import io.github.nobu0601.icocaautocharge.balance.SimulatedBalanceSource
 import io.github.nobu0601.icocaautocharge.data.db.AppDatabase
 import io.github.nobu0601.icocaautocharge.data.repo.HistoryRepository
 import io.github.nobu0601.icocaautocharge.data.settings.FlowStateRepository
@@ -42,6 +43,8 @@ class ServiceLocator(context: Context) {
 
     val balanceRepo = BalanceRepository(
         sources = listOf(
+            // 最優先。Debug で明示的に設定された間だけ有効になり、使うと消える。
+            SimulatedBalanceSource(flowState),
             IntentBalanceSource(probe),
             AccessibilityBalanceSource(),
             ManualBalanceSource(flowState),
