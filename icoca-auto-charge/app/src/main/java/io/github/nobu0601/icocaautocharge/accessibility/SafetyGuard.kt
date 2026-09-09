@@ -1,5 +1,6 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
+import io.github.nobu0601.icocaautocharge.balance.BalanceTextParser
 import io.github.nobu0601.icocaautocharge.core.IcocaConstants
 import io.github.nobu0601.icocaautocharge.core.SecureLog
 import io.github.nobu0601.icocaautocharge.core.TextNormalizer
@@ -113,10 +114,18 @@ class SafetyGuard(
      *
      * **確定ボタンを自動で押す前の最後の砦。**
      * 画面のどこにも設定額が見当たらないなら、それは想定した決済ではない。
+     *
+     * 実機の確認ダイアログは「JR西日本へお支払い額：5,000円」のように
+     * 金額を文の中に埋め込んでくるので、完全一致では見つからない。
+     * かといって部分一致にすると「15,000円」が「5,000円」を含んでしまう。
+     * そこでテキストから金額を解析し直して、値として一致するかを見る。
      */
     fun isAmountVisibleOnScreen(texts: List<String>, expectedYen: Int): Boolean {
         val variants = amountLabelVariants(expectedYen).map { TextNormalizer.normalize(it) }.toSet()
-        return texts.any { TextNormalizer.normalize(it) in variants }
+        return texts.any { text ->
+            TextNormalizer.normalize(text) in variants ||
+                BalanceTextParser.parseAmount(text) == expectedYen
+        }
     }
 
     /** 「5,000円」「¥5,000」「5000円」…といった表記ゆれ。 */

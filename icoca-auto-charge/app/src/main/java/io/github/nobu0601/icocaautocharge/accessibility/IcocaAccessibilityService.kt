@@ -303,6 +303,13 @@ class IcocaAccessibilityService : AccessibilityService() {
         guard: SafetyGuard,
         now: Long,
     ) {
+        // 実機の金額選択画面は、金額ボタンと支払いボタンが同じ画面にある。
+        // 金額を押しただけでは進まないので、押し終えたら次は支払いへ進む。
+        if (session.amountSelected) {
+            proceedToPayment(session, root, now)
+            return
+        }
+
         val variants = guard.amountLabelVariants(session.chargeAmountYen)
         val node = NodeFinder.findClickableByExactText(root, variants)
         if (node == null) {
@@ -323,6 +330,29 @@ class IcocaAccessibilityService : AccessibilityService() {
             return
         }
         performClick(session, node, "amount:$label", now)
+        session.markAmountSelected()
+    }
+
+    /**
+     * 金額選択画面から支払いの確認へ進む。
+     *
+     * 実機のボタンは「****9804でチャージ」のようにカード番号が入るため、
+     * 末尾一致で探す。**このボタンを押しても決済は確定せず、確認ダイアログが出るだけ。**
+     * 確定するかどうかは、そのダイアログで [clickConfirm] が判断する。
+     *
+     * ラベルにカード番号の下4桁が含まれるので、ログには出さない（指示書 §17, §24）。
+     */
+    private fun proceedToPayment(
+        session: AutomationSession,
+        root: AccessibilityNodeInfo,
+        now: Long,
+    ) {
+        val node = NodeFinder.findClickableByTextSuffix(root, PROCEED_TO_PAYMENT_SUFFIXES)
+        if (node == null) {
+            SecureLog.w(SecureLog.Tag.AUTOMATION, "payment button not found on the amount screen")
+            return
+        }
+        performClick(session, node, "proceed to payment", now)
     }
 
     private fun performClick(
@@ -362,16 +392,31 @@ class IcocaAccessibilityService : AccessibilityService() {
 
     private companion object {
         /**
-         * メイン画面からチャージへ進むボタンの想定ラベル。
-         * **実機検証（TECHNICAL_FEASIBILITY §3.4）の結果に合わせて更新すること。**
-         * 現時点では推測であり、一致しなければ何も押さずに止まるだけなので安全。
+         * メイン画面からチャージへ進むボタンのラベル。
+         * 実機は「チャージ」ちょうど（2026-09-09 / Pixel 8a で確認）。残りは保険。
          */
         val CHARGE_ENTRY_LABELS = listOf("チャージ", "チャージする", "入金", "入金（チャージ）")
 
+        /**
+         * 支払い方法を選ぶ画面があった場合のラベル。
+         * 実機ではカードが選択済みで、この画面は出ずに金額選択へ直行する。
+         */
         val CHARGE_METHOD_LABELS = listOf("クレジットカード", "登録済みのカード", "銀行口座")
 
         /**
-         * 決済を確定するボタンの想定ラベル。**実機のダンプで確認して差し替えること。**
+         * 金額選択画面から支払い確認へ進むボタンの末尾。
+         *
+         * 実機は「****9804でチャージ」で、前半にカード番号が入るため末尾で照合する
+         * （2026-09-09 / Pixel 8a で確認）。
+         * **このボタンを押しても決済は確定せず、確認ダイアログが出るだけ。**
+         */
+        val PROCEED_TO_PAYMENT_SUFFIXES = listOf("でチャージ")
+
+        /**
+         * 決済を確定するボタンのラベル。
+         *
+         * 実機の「チャージ確認」ダイアログは「キャンセル」と「チャージする」の2択で、
+         * 「チャージする」を 2026-09-09 / Pixel 8a で確認済み。残りは他バージョン向けの保険。
          *
          * 「はい」「OK」のような汎用語は入れない。金額が出ていることは別途確認しているが、
          * それでも汎用語で確定を押すのは危うい。

@@ -29,6 +29,19 @@ class AutomationSession(
     var lastScreen: IcocaScreen = IcocaScreen.UNKNOWN
         private set
 
+    /**
+     * 金額選択画面で、設定した金額のボタンを押し終えたか。
+     *
+     * 実機の金額選択画面は「金額を選ぶ」と「支払いへ進む」が同じ画面にあるため、
+     * 同じ画面で2手必要になる。これが無いと金額ボタンを押し続けて先へ進まない。
+     */
+    var amountSelected: Boolean = false
+        private set
+
+    fun markAmountSelected() {
+        amountSelected = true
+    }
+
     /** ドライラン時に「押す予定だったもの」を残す。 */
     val plannedClicks = mutableListOf<String>()
 

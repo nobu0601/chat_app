@@ -31,6 +31,17 @@ object BalanceTextParser {
     private val BALANCE_LABELS = listOf("残高", "残額", "ざんだか", "SF残", "チャージ残", "現在の残")
 
     /**
+     * 「これからこうなる」という予定額を指すラベル。**現在の残高ではない。**
+     *
+     * 実機のチャージ確認ダイアログには「チャージ後の残額：11,271円」と出る。
+     * 「残額」を含むのでラベルとしては強く一致してしまうが、これはチャージが
+     * 成功した場合の見込み額であって、いまの残高ではない。
+     * これを残高として取り込むと、ユーザーがキャンセルしても
+     * 「残高が増えた＝チャージ成功」と誤判定する。
+     */
+    private val PROJECTED_LABELS = listOf("チャージ後", "後の残", "変更後", "予定")
+
+    /**
      * 金額らしき部分。全角の￥・半角の¥・末尾の円 を許容し、桁区切りのカンマを許す。
      * 直前が符号やハイフンの場合は拾わない（負数・電話番号・日付を除外するため）。
      */
@@ -46,6 +57,10 @@ object BalanceTextParser {
     /** そのテキストに残高ラベルが含まれるか。 */
     fun hasBalanceLabel(text: String): Boolean =
         BALANCE_LABELS.any { text.contains(it) }
+
+    /** そのテキストが「チャージ後の残額」のような予定額を指しているか。 */
+    fun isProjectedBalance(text: String): Boolean =
+        PROJECTED_LABELS.any { text.contains(it) }
 
     /**
      * 単一の文字列から金額を1つ取り出す。文脈は見ない。
@@ -77,6 +92,8 @@ object BalanceTextParser {
      */
     fun extractBalanceFromLines(lines: List<String>, preferLabeled: Boolean = true): Int? {
         val scored = lines.mapIndexedNotNull { index, line ->
+            // 予定額は現在の残高ではないので、候補にすら入れない
+            if (isProjectedBalance(line)) return@mapIndexedNotNull null
             parseAmount(line)?.let { yen -> yen to score(lines, index, line, yen) }
         }
         val best = scored.maxByOrNull { it.second } ?: return null
@@ -99,7 +116,10 @@ object BalanceTextParser {
         // それらを足し合わせただけでラベル付きの候補に勝ってはいけない。
         if (hasBalanceLabel(text)) {
             score += 4
-        } else if (nearby(lines, index, LABEL_DISTANCE).any { hasBalanceLabel(it) }) {
+        } else if (
+            nearby(lines, index, LABEL_DISTANCE)
+                .any { hasBalanceLabel(it) && !isProjectedBalance(it) }
+        ) {
             // ラベルは前後どちらにもありうる。実機では数値の「後ろ」にある
             score += 3
         }

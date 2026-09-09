@@ -59,6 +59,25 @@ object NodeFinder {
         }?.let { isClickableSelfOrAncestor(it) }
     }
 
+    /**
+     * 指定した語で **終わる** クリック可能なノードを探す。
+     *
+     * 実機の支払いボタンは「****9804でチャージ」のようにカード番号が入り、
+     * 完全一致では掴めない。可変部分を含むボタンはこれで探す。
+     * 前方一致にしないのは、可変部分が前に来る形（「〜でチャージ」）だから。
+     */
+    fun findClickableByTextSuffix(
+        root: AccessibilityNodeInfo?,
+        suffixes: Collection<String>,
+    ): AccessibilityNodeInfo? {
+        val normalizedSuffixes = suffixes.map { TextNormalizer.normalize(it) }
+        return walk(root).firstOrNull { node ->
+            val text = visibleText(node)?.let { TextNormalizer.normalize(it) }
+                ?: return@firstOrNull false
+            normalizedSuffixes.any { text.endsWith(it) } && isClickableSelfOrAncestor(node) != null
+        }?.let { isClickableSelfOrAncestor(it) }
+    }
+
     /** テキストを含むノードを探す（画面判定など、押さない用途にのみ使う）。 */
     fun findByTextContains(root: AccessibilityNodeInfo?, needle: String): AccessibilityNodeInfo? =
         walk(root).firstOrNull { visibleText(it)?.contains(needle) == true }
