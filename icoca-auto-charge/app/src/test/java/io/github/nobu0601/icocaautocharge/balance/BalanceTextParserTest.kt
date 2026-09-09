@@ -32,25 +32,24 @@ class BalanceTextParserTest {
     }
 
     @Test
-    fun `ラベルのない金額は既定では採用しない`() {
-        // チャージ金額ボタンの「5,000円」を残高と誤認しないこと
-        val candidates = listOf(BalanceTextParser.Candidate("5,000円", labeled = false))
-        assertNull(BalanceTextParser.extractBalance(candidates))
+    fun `ラベルの裏付けがない金額は既定では採用しない`() {
+        // チャージ金額ボタンの「5,000円」だけが見えている状況で、
+        // それを残高として採用してしまわないこと
+        assertNull(BalanceTextParser.extractBalanceFromLines(listOf("5,000円")))
     }
 
     @Test
-    fun `ラベルのない金額もpreferLabeledをfalseにすれば採用する`() {
-        val candidates = listOf(BalanceTextParser.Candidate("5,000円", labeled = false))
-        assertEquals(5_000, BalanceTextParser.extractBalance(candidates, preferLabeled = false))
-    }
-
-    @Test
-    fun `ラベル付きの候補を優先する`() {
-        val candidates = listOf(
-            BalanceTextParser.Candidate("5,000円", labeled = false),
-            BalanceTextParser.Candidate("残高 2,840", labeled = true),
+    fun `preferLabeledをfalseにすれば裏付けのない金額も採用する`() {
+        assertEquals(
+            5_000,
+            BalanceTextParser.extractBalanceFromLines(listOf("5,000円"), preferLabeled = false),
         )
-        assertEquals(2_840, BalanceTextParser.extractBalance(candidates))
+    }
+
+    @Test
+    fun `ラベルの近くにある金額を優先する`() {
+        val lines = listOf("5,000円", "その他", "案内", "残高", "2,840")
+        assertEquals(2_840, BalanceTextParser.extractBalanceFromLines(lines))
     }
 
     @Test

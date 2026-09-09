@@ -94,6 +94,12 @@ object ScreenClassifier {
         "処理中", "しばらくお待ち", "通信中", "読み込み中",
     )
 
+    /** チャージ額の刻み。ICOCA のチャージは 1,000 円単位。 */
+    private const val CHARGE_DENOMINATION_UNIT = 1_000
+
+    /** 金額選択画面とみなすのに必要な、並んでいるチャージ額の数。 */
+    private const val MIN_DENOMINATIONS = 3
+
     fun classify(texts: List<String>): IcocaScreen {
         if (texts.isEmpty()) return IcocaScreen.UNKNOWN
         val joined = texts.joinToString("\n")
@@ -111,9 +117,19 @@ object ScreenClassifier {
         // 4. 決済確認。ここに来たら自動操作を終える。
         if (PAYMENT_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PAYMENT_CONFIRM
 
-        // 5. 金額選択。明示的な見出しか、金額候補が3つ以上並んでいるか。
-        val amountLikeCount = texts.count { BalanceTextParser.parseAmount(it) != null }
-        if (CHARGE_AMOUNT_KEYWORDS.any { joined.contains(it) } || amountLikeCount >= 3) {
+        // 5. 金額選択。明示的な見出しか、チャージ額らしい数字が並んでいるか。
+        //
+        // 「金額としてパースできる数字が3つ以上」では緩すぎる。実機のメイン画面には
+        // 定期券の日付（6, 3, 8）が裸の数字として並んでおり、それだけで
+        // 金額選択画面と誤判定されていた。チャージ額は 1,000 円単位なので、
+        // 「1,000 以上かつ 1,000 の倍数」に絞る。
+        val denominationCount = texts.count { text ->
+            val yen = BalanceTextParser.parseAmount(text)
+            yen != null && yen >= CHARGE_DENOMINATION_UNIT && yen % CHARGE_DENOMINATION_UNIT == 0
+        }
+        if (CHARGE_AMOUNT_KEYWORDS.any { joined.contains(it) } ||
+            denominationCount >= MIN_DENOMINATIONS
+        ) {
             return IcocaScreen.CHARGE_AMOUNT
         }
 
