@@ -58,21 +58,41 @@ jobs:
       # 実機検証用に、素の .apk を Release に置いて直リンクで取れるようにする。
       # タグは毎回作り直すので、常に「いまビルドしたコミット」を指す。
       - name: Publish the debug APK as a release asset
+        id: publish
         if: steps.assemble.outcome == 'success'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           cp app/build/outputs/apk/debug/app-debug.apk icoca-auto-charge-debug.apk
-          gh release delete debug-latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
+
+          # gh release create が「タグがまだ存在しない」状態で呼ばれると、
+          # 実際のタグを作らないまま draft: true / タグ名 "untagged-XXXXX" の
+          # 中途半端な状態で止まることがある（このステップ自体はエラーを返さない
+          # ため CI は緑のまま、リリースだけが 404 になる不具合を実際に踏んだ）。
+          # タグはこちらで確実に作って push し、gh には既存タグへの
+          # リリース作成だけをさせる。
+          git tag -f debug-latest "$GITHUB_SHA"
+          git push origin -f debug-latest
+
+          gh release delete debug-latest --repo "$GITHUB_REPOSITORY" --yes || true
           gh release create debug-latest \
             --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
             --title "icoca-auto-charge debug build" \
             --notes "実機検証用の debug ビルド。push のたびに差し替わります。commit ${GITHUB_SHA}" \
             --prerelease
           gh release upload debug-latest icoca-auto-charge-debug.apk \
             --repo "$GITHUB_REPOSITORY" --clobber
+
+          # 作成できたことをここで確かめる。draft のまま／タグ未添付だと
+          # ダウンロードリンクが 404 になるので、公開状態を必ず検証する。
+          actual_tag=$(gh release view debug-latest --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          is_draft=$(gh release view debug-latest --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)
+          if [ "$actual_tag" != "debug-latest" ] || [ "$is_draft" != "false" ]; then
+            echo "::error::release publish did not fully complete (tag=$actual_tag draft=$is_draft)"
+            exit 1
+          fi
 
       - name: Upload reports and APK
         if: always()
@@ -88,9 +108,11 @@ jobs:
         if: >-
           steps.assemble.outcome == 'failure' ||
           steps.tests.outcome == 'failure' ||
-          steps.lint.outcome == 'failure'
+          steps.lint.outcome == 'failure' ||
+          steps.publish.outcome == 'failure'
         run: |
           echo "assemble=${{ steps.assemble.outcome }}"
           echo "tests=${{ steps.tests.outcome }}"
           echo "lint=${{ steps.lint.outcome }}"
+          echo "publish=${{ steps.publish.outcome }}"
           exit 1
