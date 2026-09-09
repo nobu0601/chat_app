@@ -303,34 +303,40 @@ class IcocaAccessibilityService : AccessibilityService() {
         guard: SafetyGuard,
         now: Long,
     ) {
-        // 実機の金額選択画面は、金額ボタンと支払いボタンが同じ画面にある。
-        // 金額を押しただけでは進まないので、押し終えたら次は支払いへ進む。
-        if (session.amountSelected) {
-            proceedToPayment(session, root, now)
-            return
+        if (!session.amountSelected) {
+            val variants = guard.amountLabelVariants(session.chargeAmountYen)
+            val node = NodeFinder.findClickableByExactText(root, variants)
+            if (node == null) {
+                SecureLog.w(
+                    SecureLog.Tag.AUTOMATION,
+                    "amount button for ${session.chargeAmountYen} not found",
+                )
+                return
+            }
+            val label = NodeFinder.visibleText(node)
+            if (!guard.verifyAmountLabel(label, session.chargeAmountYen)) {
+                session.finish(
+                    AutomationSession.Outcome.Stopped(
+                        ErrorReason.AMOUNT_MISMATCH,
+                        "選択しようとした金額が設定と一致しません",
+                    ),
+                )
+                return
+            }
+            performClick(session, node, "amount:$label", now)
+            session.markAmountSelected()
         }
 
-        val variants = guard.amountLabelVariants(session.chargeAmountYen)
-        val node = NodeFinder.findClickableByExactText(root, variants)
-        if (node == null) {
-            SecureLog.w(
-                SecureLog.Tag.AUTOMATION,
-                "amount button for ${session.chargeAmountYen} not found",
-            )
-            return
-        }
-        val label = NodeFinder.visibleText(node)
-        if (!guard.verifyAmountLabel(label, session.chargeAmountYen)) {
-            session.finish(
-                AutomationSession.Outcome.Stopped(
-                    ErrorReason.AMOUNT_MISMATCH,
-                    "選択しようとした金額が設定と一致しません",
-                ),
-            )
-            return
-        }
-        performClick(session, node, "amount:$label", now)
-        session.markAmountSelected()
+        // 実機の金額選択画面は、金額ボタンと支払いへ進むボタンが同じ画面にある。
+        // 「支払いへ進む」ボタンは金額を選ぶ前から画面に存在しているので、
+        // 金額を押した直後、次のアクセシビリティイベントを待たずにここで続けて探す。
+        //
+        // 待ってはいけない理由（実機で実際に踏んだ不具合）: すでに「5,000」が
+        // 表示されている状態で「5,000」を押しても、画面の見た目が変わらないため
+        // 次のイベントが発生せず、advance() が二度と呼ばれない。その結果、
+        // 金額を選んだところで永久に止まる。同じ root にすでに「支払いへ進む」
+        // ボタンが写っているので、イベントを待たずに同じ処理内で押しにいく。
+        proceedToPayment(session, root, now)
     }
 
     /**
