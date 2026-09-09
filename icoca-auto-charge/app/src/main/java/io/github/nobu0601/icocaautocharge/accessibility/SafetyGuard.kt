@@ -10,11 +10,16 @@ import io.github.nobu0601.icocaautocharge.domain.ErrorReason
  *
  * **クリックを1回でも実行する前に、必ず [check] を通す。**
  * 1つでも条件を満たさなければ操作を止める。止まりすぎて困ることはあっても、
- * 進みすぎて決済してしまうことは絶対に避けなければならない。
+ * 進みすぎて意図しない決済をしてしまうことは避けなければならない。
+ *
+ * @param autoConfirmPayment 決済の確定まで自動で押すか（ユーザー設定）。
+ *   true でも、[IcocaScreen.AUTHENTICATION] は**必ず**停止する。
+ *   本人認証の自動突破は、設定に関係なく一切行わない。
  */
 class SafetyGuard(
     /** 初回に記録した ICOCA アプリの署名。null なら署名検査を行わない（初回検出時）。 */
     private val expectedSignature: String?,
+    private val autoConfirmPayment: Boolean = false,
 ) {
 
     sealed interface Verdict {
@@ -67,6 +72,7 @@ class SafetyGuard(
         }
         // 5. 画面種別ごとの判断
         return when (ctx.screen) {
+            // 本人認証は設定に関係なく必ず停止する。ここは動かさない。
             IcocaScreen.AUTHENTICATION -> stop(
                 ErrorReason.AUTHENTICATION_REQUIRED,
                 "本人認証が必要です。ここから先はご自身で操作してください",
@@ -79,8 +85,9 @@ class SafetyGuard(
                 ErrorReason.UNEXPECTED_SCREEN,
                 "想定していない画面のため、自動操作を中止しました",
             )
-            // 決済確認は「エラー」ではない。ユーザーに委ねて正常終了する。
-            IcocaScreen.PAYMENT_CONFIRM -> Verdict.Finish(ctx.screen)
+            // 決済確認は設定次第。自動確定しない場合はユーザーに委ねて正常終了する。
+            IcocaScreen.PAYMENT_CONFIRM ->
+                if (autoConfirmPayment) Verdict.Proceed else Verdict.Finish(ctx.screen)
             IcocaScreen.COMPLETED -> Verdict.Finish(ctx.screen)
             IcocaScreen.MAIN,
             IcocaScreen.CHARGE_ENTRY,
@@ -99,6 +106,17 @@ class SafetyGuard(
         if (label == null) return false
         val normalized = TextNormalizer.normalize(label)
         return amountLabelVariants(expectedYen).any { TextNormalizer.normalize(it) == normalized }
+    }
+
+    /**
+     * 決済確認画面に、設定どおりの金額が表示されているか。
+     *
+     * **確定ボタンを自動で押す前の最後の砦。**
+     * 画面のどこにも設定額が見当たらないなら、それは想定した決済ではない。
+     */
+    fun isAmountVisibleOnScreen(texts: List<String>, expectedYen: Int): Boolean {
+        val variants = amountLabelVariants(expectedYen).map { TextNormalizer.normalize(it) }.toSet()
+        return texts.any { TextNormalizer.normalize(it) in variants }
     }
 
     /** 「5,000円」「¥5,000」「5000円」…といった表記ゆれ。 */

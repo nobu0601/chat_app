@@ -1,6 +1,7 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Intent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.github.nobu0601.icocaautocharge.IcocaApp
@@ -76,16 +77,48 @@ class IcocaAccessibilityService : AccessibilityService() {
     }
 
     /** チャージフローから自動操作を開始する。 */
-    fun beginSession(chargeAmountYen: Int, dryRun: Boolean): AutomationSession {
+    fun beginSession(
+        chargeAmountYen: Int,
+        dryRun: Boolean,
+        autoConfirmPayment: Boolean = false,
+    ): AutomationSession {
         // セッション開始のたびに読み直す。前回の起動以降に ICOCA が更新されている可能性があるため。
         refreshSignatures()
-        val s = AutomationSession(chargeAmountYen, System.currentTimeMillis(), dryRun)
+        val s = AutomationSession(
+            chargeAmountYen = chargeAmountYen,
+            startedAt = System.currentTimeMillis(),
+            dryRun = dryRun,
+            autoConfirmPayment = autoConfirmPayment,
+        )
         session = s
         SecureLog.i(
             SecureLog.Tag.AUTOMATION,
-            "automation session started amount=$chargeAmountYen dryRun=$dryRun",
+            "automation session started amount=$chargeAmountYen dryRun=$dryRun " +
+                "autoConfirm=$autoConfirmPayment",
         )
         return s
+    }
+
+    /**
+     * ICOCA アプリを前面に出す。
+     *
+     * 通常、バックグラウンドから他アプリの Activity を起動することは Android にブロックされる。
+     * ユーザー補助サービスはシステムにバインドされているため、この経路なら起動できる。
+     * ただし OS のバージョンや保護設定によっては拒否されうるので、
+     * 失敗しても例外を投げず false を返し、呼び出し側が通知にフォールバックできるようにする。
+     */
+    fun launchIcoca(): Boolean {
+        val intent = packageManager.getLaunchIntentForPackage(IcocaConstants.PACKAGE_NAME)
+            ?: return false
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+        return try {
+            startActivity(intent)
+            SecureLog.i(SecureLog.Tag.AUTOMATION, "launched ICOCA from the accessibility service")
+            true
+        } catch (e: Exception) {
+            SecureLog.e("failed to launch ICOCA from the accessibility service", e)
+            false
+        }
     }
 
     fun currentSession(): AutomationSession? = session
@@ -137,7 +170,7 @@ class IcocaAccessibilityService : AccessibilityService() {
 
         val active = session ?: return
         if (active.isFinished) return
-        advance(active, root, screen, pkg, now)
+        advance(active, root, texts, screen, pkg, now)
     }
 
     /** 残高テキストを拾って共有する。セッションの有無に関係なく行う。 */
@@ -152,13 +185,14 @@ class IcocaAccessibilityService : AccessibilityService() {
     private fun advance(
         session: AutomationSession,
         root: AccessibilityNodeInfo,
+        texts: List<String>,
         screen: IcocaScreen,
         pkg: String,
         now: Long,
     ) {
         session.onScreen(screen, now)
 
-        val guard = SafetyGuard(expectedSignature)
+        val guard = SafetyGuard(expectedSignature, session.autoConfirmPayment)
         val verdict = guard.check(
             SafetyGuard.Context(
                 packageName = pkg,
@@ -193,9 +227,53 @@ class IcocaAccessibilityService : AccessibilityService() {
             IcocaScreen.CHARGE_ENTRY ->
                 clickIfFound(session, root, CHARGE_ENTRY_LABELS + CHARGE_METHOD_LABELS, now, "charge method")
             IcocaScreen.CHARGE_AMOUNT -> clickAmount(session, root, guard, now)
+            // ここに来るのは autoConfirmPayment が有効なときだけ。
+            // 無効なら SafetyGuard が Finish を返して、上の when で終わっている。
+            IcocaScreen.PAYMENT_CONFIRM -> clickConfirm(session, root, texts, guard, now)
             IcocaScreen.PROCESSING -> Unit // 待つ
             else -> Unit
         }
+    }
+
+    /**
+     * 決済の確定ボタンを押す。**このアプリで唯一、お金が動く操作。**
+     *
+     * 押す前に2つ確認し、どちらか欠けたら押さずに止める。
+     *  1. 画面に設定どおりの金額が表示されていること
+     *  2. 確定ボタンのラベルが既知のものと完全一致すること
+     *
+     * 見つからないときは、次に直せるようクリック可能なラベルをログに残す。
+     */
+    private fun clickConfirm(
+        session: AutomationSession,
+        root: AccessibilityNodeInfo,
+        texts: List<String>,
+        guard: SafetyGuard,
+        now: Long,
+    ) {
+        if (!guard.isAmountVisibleOnScreen(texts, session.chargeAmountYen)) {
+            session.finish(
+                AutomationSession.Outcome.Stopped(
+                    ErrorReason.AMOUNT_MISMATCH,
+                    "決済画面に設定した金額が見当たらないため、確定しませんでした",
+                ),
+            )
+            return
+        }
+        val node = NodeFinder.findClickableByExactText(root, CONFIRM_LABELS)
+        if (node == null) {
+            // 押さずに待てば、進展しないまま STALL_TIMEOUT で安全に終わる。
+            // どのラベルを足すべきか分かるよう、押せるものを控えておく。
+            val clickable = NodeFinder.walk(root)
+                .filter { it.isClickable }
+                .mapNotNull { NodeFinder.visibleText(it) }
+            SecureLog.w(
+                SecureLog.Tag.PAYMENT,
+                "confirm button not found; clickable labels on this screen: $clickable",
+            )
+            return
+        }
+        performClick(session, node, "confirm:${NodeFinder.visibleText(node)}", now)
     }
 
     private fun clickIfFound(
@@ -291,6 +369,18 @@ class IcocaAccessibilityService : AccessibilityService() {
         val CHARGE_ENTRY_LABELS = listOf("チャージ", "チャージする", "入金", "入金（チャージ）")
 
         val CHARGE_METHOD_LABELS = listOf("クレジットカード", "登録済みのカード", "銀行口座")
+
+        /**
+         * 決済を確定するボタンの想定ラベル。**実機のダンプで確認して差し替えること。**
+         *
+         * 「はい」「OK」のような汎用語は入れない。金額が出ていることは別途確認しているが、
+         * それでも汎用語で確定を押すのは危うい。
+         * 一致しなければ押さずに止まるだけなので、外れていても安全側に倒れる。
+         */
+        val CONFIRM_LABELS = listOf(
+            "チャージする", "決済する", "支払う", "確定する", "確定",
+            "この内容でチャージする", "チャージを実行", "実行する",
+        )
 
         const val MAX_DUMP_NODES = 120
     }

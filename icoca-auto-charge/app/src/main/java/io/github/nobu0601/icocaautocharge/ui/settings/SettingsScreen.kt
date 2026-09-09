@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
@@ -82,6 +83,10 @@ fun SettingsScreen(
             SwitchRow(stringResource(R.string.set_confirm_before), draft.confirmBeforeCharge) {
                 draft = draft.copy(confirmBeforeCharge = it)
             }
+            Text(
+                stringResource(R.string.set_confirm_before_desc),
+                style = MaterialTheme.typography.bodySmall,
+            )
             SwitchRow(stringResource(R.string.set_wifi_only), draft.wifiOnly) {
                 draft = draft.copy(wifiOnly = it)
             }
@@ -122,6 +127,24 @@ fun SettingsScreen(
                     TextButton(onClick = onOpenAccessibilitySettings) {
                         Text(stringResource(R.string.warn_accessibility_open_settings))
                     }
+                }
+
+                HorizontalDivider()
+
+                SwitchRow(
+                    stringResource(R.string.set_auto_confirm),
+                    draft.autoConfirmPayment,
+                ) { draft = draft.copy(autoConfirmPayment = it) }
+                Text(
+                    stringResource(R.string.set_auto_confirm_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (draft.autoConfirmPayment) {
+                    Text(
+                        stringResource(R.string.set_auto_confirm_warning),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
             }
         }

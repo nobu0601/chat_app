@@ -24,6 +24,7 @@ class SettingsRepository(private val context: Context) {
         val monthly = intPreferencesKey("monthly_limit_yen")
         val interval = intPreferencesKey("min_charge_interval_hours")
         val confirm = booleanPreferencesKey("confirm_before_charge")
+        val autoConfirmPayment = booleanPreferencesKey("auto_confirm_payment")
         val wifiOnly = booleanPreferencesKey("wifi_only")
         val chargingOnly = booleanPreferencesKey("charging_only")
         val checkInterval = intPreferencesKey("check_interval_hours")
@@ -42,6 +43,7 @@ class SettingsRepository(private val context: Context) {
             monthlyLimitYen = p[Keys.monthly] ?: d.monthlyLimitYen,
             minChargeIntervalHours = p[Keys.interval] ?: d.minChargeIntervalHours,
             confirmBeforeCharge = p[Keys.confirm] ?: d.confirmBeforeCharge,
+            autoConfirmPayment = p[Keys.autoConfirmPayment] ?: d.autoConfirmPayment,
             wifiOnly = p[Keys.wifiOnly] ?: d.wifiOnly,
             chargingOnly = p[Keys.chargingOnly] ?: d.chargingOnly,
             checkIntervalHours = p[Keys.checkInterval] ?: d.checkIntervalHours,
@@ -62,6 +64,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.monthly] = s.monthlyLimitYen
             p[Keys.interval] = s.minChargeIntervalHours
             p[Keys.confirm] = s.confirmBeforeCharge
+            p[Keys.autoConfirmPayment] = s.autoConfirmPayment
             p[Keys.wifiOnly] = s.wifiOnly
             p[Keys.chargingOnly] = s.chargingOnly
             p[Keys.checkInterval] = s.checkIntervalHours

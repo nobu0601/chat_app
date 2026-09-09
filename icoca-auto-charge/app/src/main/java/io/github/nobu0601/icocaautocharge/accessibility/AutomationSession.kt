@@ -14,6 +14,11 @@ class AutomationSession(
     val startedAt: Long,
     /** true のとき、押す予定を記録するだけでクリックしない（Debug 用）。 */
     val dryRun: Boolean,
+    /**
+     * 決済の確定まで自動で押すか。
+     * 本人認証の画面は、この値に関係なく必ず停止する。
+     */
+    val autoConfirmPayment: Boolean = false,
 ) {
     var stepCount: Int = 0
         private set

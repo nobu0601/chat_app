@@ -7,6 +7,7 @@ import io.github.nobu0601.icocaautocharge.core.SecureLog
 import io.github.nobu0601.icocaautocharge.core.TimeProvider
 import io.github.nobu0601.icocaautocharge.data.db.ChargeHistoryEntity
 import io.github.nobu0601.icocaautocharge.data.repo.HistoryRepository
+import io.github.nobu0601.icocaautocharge.data.settings.AppSettings
 import io.github.nobu0601.icocaautocharge.data.settings.FlowStateRepository
 import io.github.nobu0601.icocaautocharge.data.settings.SettingsRepository
 import io.github.nobu0601.icocaautocharge.domain.AutomationMethod
@@ -53,14 +54,22 @@ class ChargeFlowCoordinator(
         val balance: BalanceReading?,
         val decision: ChargeDecision,
         val startedAttempt: Boolean,
+        /**
+         * 通知を待たずに ICOCA アプリを起動し、自動操作を始めたか。
+         * true のとき、呼び出し元は [superviseAndVerify] で見届ける責任を負う。
+         */
+        val autoStarted: Boolean = false,
     )
 
     /**
      * 残高を確認し、必要ならチャージ処理を開始する。
      *
      * WorkManager からも「今すぐ確認」からも呼ばれる入口。
-     * **ここから ICOCA アプリを起動することはない**（バックグラウンド起動制限のため。
-     * 起動はユーザーが通知をタップした先の Activity が行う）。
+     *
+     * 既定では通知を出すところまでで、ICOCA アプリの起動はユーザーが通知を
+     * タップした先の Activity が行う（バックグラウンド起動制限のため）。
+     * ただし設定で「チャージ前確認」を OFF にしている場合は、
+     * ユーザー補助サービス経由でここから直接起動する（[tryAutoStart]）。
      */
     suspend fun runCheck(trigger: String): CheckResult = mutex.withLock {
         val now = time.nowMillis()
@@ -104,7 +113,56 @@ class ChargeFlowCoordinator(
             balanceSource = balance?.source,
             now = now,
         )
-        CheckResult(balance, decision, started)
+        val autoStarted = started && tryAutoStart(settings, now)
+        CheckResult(balance, decision, started, autoStarted)
+    }
+
+    /**
+     * ユーザーの操作を待たずに ICOCA アプリを開き、自動操作を始める。
+     *
+     * 次の条件がすべて揃ったときだけ動く。ひとつでも欠けたら何もせず false を返し、
+     * 通常どおり「通知をタップして開始する」経路に委ねる。
+     *
+     *  - 設定で「チャージ前確認」が OFF
+     *  - 自動操作が有効で、同意済み
+     *  - ユーザー補助サービスが生きている（起動はこのサービス経由でしかできない）
+     *  - ICOCA アプリがインストールされている
+     */
+    private suspend fun tryAutoStart(settings: AppSettings, now: Long): Boolean {
+        if (settings.confirmBeforeCharge) return false
+        if (!settings.automationEnabled || !settings.automationConsented) return false
+        if (!launcher.isInstalled()) return false
+        val service = AccessibilityBridge.service() ?: run {
+            SecureLog.i(
+                SecureLog.Tag.AUTOMATION,
+                "auto start requested but the accessibility service is not running",
+            )
+            return false
+        }
+
+        val attempt = flowState.currentAttempt() ?: return false
+        val pending = stateMachine.transition(attempt, ChargeState.CHARGE_PENDING, now)
+        if (pending !is ChargeStateMachine.Result.Accepted) return false
+        flowState.saveAttempt(pending.attempt)
+        updateHistory(pending.attempt.historyId) { it.copy(status = ChargeStatus.PENDING) }
+
+        // ICOCA を開く前にセッションを張る。開いてからでは最初の画面遷移を取りこぼす。
+        service.beginSession(
+            chargeAmountYen = settings.chargeAmountYen,
+            dryRun = AccessibilityBridge.dryRun,
+            autoConfirmPayment = settings.autoConfirmPayment,
+        )
+        if (!service.launchIcoca()) {
+            // 起動できなかった。セッションだけ畳む。
+            // 状態は CHARGE_PENDING のままでよい。通知の「チャージ」から
+            // startCharge() を呼べば、そこから普通に始められる。
+            service.endSession()
+            SecureLog.w(SecureLog.Tag.AUTOMATION, "auto start failed; falling back to the notification")
+            return false
+        }
+        notifications.cancelLowBalance()
+        SecureLog.i(SecureLog.Tag.MONITOR, "charge flow auto-started without a user tap")
+        return true
     }
 
     /**
@@ -190,8 +248,11 @@ class ChargeFlowCoordinator(
         // 自動操作を使う場合は、ICOCA を起動する前にセッションを張っておく。
         // 起動後に張ると最初の画面遷移を取りこぼす。
         if (useAutomation) {
-            AccessibilityBridge.service()
-                ?.beginSession(settings.chargeAmountYen, AccessibilityBridge.dryRun)
+            AccessibilityBridge.service()?.beginSession(
+                chargeAmountYen = settings.chargeAmountYen,
+                dryRun = AccessibilityBridge.dryRun,
+                autoConfirmPayment = settings.autoConfirmPayment,
+            )
         }
 
         return@withLock when (val r = launcher.launchMain()) {

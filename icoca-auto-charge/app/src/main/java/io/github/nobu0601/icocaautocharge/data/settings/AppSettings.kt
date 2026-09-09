@@ -13,7 +13,21 @@ data class AppSettings(
     val dailyLimitYen: Int = 10_000,
     val monthlyLimitYen: Int = 30_000,
     val minChargeIntervalHours: Int = 6,
+    /**
+     * ICOCA アプリを開く前に、通知をタップして確認するか。
+     *
+     * OFF にすると、残高低下を検知した時点で自動的に ICOCA アプリが前面に出る。
+     * 使用中に割り込まれることになるので、既定は ON。
+     */
     val confirmBeforeCharge: Boolean = true,
+    /**
+     * 決済の「確定」まで自動で押すか。
+     *
+     * **お金が動く操作を無人で行う設定。** 既定は OFF。
+     * ON でも、本人認証（3Dセキュア・生体認証・パスワード）を検知したら必ず停止する。
+     * 認証の自動突破は、この設定に関係なく一切行わない。
+     */
+    val autoConfirmPayment: Boolean = false,
     val wifiOnly: Boolean = false,
     val chargingOnly: Boolean = false,
     /** 残高チェックの希望間隔。WorkManager の下限 15 分より短くはできない。 */

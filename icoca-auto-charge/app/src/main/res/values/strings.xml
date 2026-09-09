@@ -79,7 +79,11 @@
     <string name="set_monthly_limit">月間最大チャージ額</string>
     <string name="set_interval">最低チャージ間隔</string>
     <string name="set_interval_hours">%1$d時間</string>
-    <string name="set_confirm_before">チャージ前確認</string>
+    <string name="set_confirm_before">チャージ前にタップして確認する</string>
+    <string name="set_confirm_before_desc">ONのとき、残高低下を検知したら通知を出し、あなたがタップしてからICOCAアプリを開きます。OFFにすると、検知した時点で自動的にICOCAアプリが前面に出ます（操作中でも割り込みます）。</string>
+    <string name="set_auto_confirm">決済の確定まで自動で押す</string>
+    <string name="set_auto_confirm_desc">ONにすると、チャージ金額の選択に加えて決済の確定ボタンも自動で押します。あなたが見ていないところでお金が動きます。設定した金額が画面に表示されていることを確認できた場合のみ押し、確認できなければ押しません。本人認証（3Dセキュア・生体認証・パスワード）が出た場合は、この設定に関係なく必ず停止します。認証を自動で突破することはありません。</string>
+    <string name="set_auto_confirm_warning">この設定はお金が動く操作を無人で行います。上限（1日・月間）とチャージ間隔が最後の歯止めになるので、必ず確認してください。</string>
     <string name="set_wifi_only">Wi-Fi時のみ</string>
     <string name="set_charging_only">充電中のみ</string>
     <string name="set_check_interval">残高チェック間隔</string>
@@ -96,7 +100,7 @@
 
     <!-- 自動操作の同意 -->
     <string name="consent_title">自動操作について（必ずお読みください）</string>
-    <string name="consent_body">この機能を有効にすると、本アプリはAndroidのユーザー補助（アクセシビリティ）機能を使って、モバイルICOCAアプリの画面を読み取ります。\n\n・読み取る対象はモバイルICOCAアプリの画面のみです。他のアプリは一切見ません。\n・読み取った内容は残高の抽出と画面の判別にのみ使い、保存しません。\n・カード番号、セキュリティコード、パスワード、認証情報は取得も保存も送信もしません。\n・本アプリはネットワーク通信を行いません。\n・決済の確認、3Dセキュア、生体認証などの本人確認は自動化せず、必ずあなた自身が操作します。\n・想定外の画面を検知した場合、安全のため自動操作を停止します。\n\nまた、Android 17以降で「高度な保護モード」を有効にしている場合、この機能はOSによって無効化されます。その場合でも、通知からワンタップでICOCAアプリを開く運用は引き続き利用できます。</string>
+    <string name="consent_body">この機能を有効にすると、本アプリはAndroidのユーザー補助（アクセシビリティ）機能を使って、モバイルICOCAアプリの画面を読み取ります。\n\n・読み取る対象はモバイルICOCAアプリの画面のみです。他のアプリは一切見ません。\n・読み取った内容は残高の抽出と画面の判別にのみ使い、保存しません。\n・カード番号、セキュリティコード、パスワード、認証情報は取得も保存も送信もしません。\n・本アプリはネットワーク通信を行いません。\n・本人認証（3Dセキュア・生体認証・パスワード）は自動化しません。検知した時点で必ず停止し、あなたに操作を渡します。\n・決済の確定ボタンを自動で押すかどうかは、下の「決済の確定まで自動で押す」で選べます。既定はOFF（あなたが押す）です。\n・想定外の画面を検知した場合、安全のため自動操作を停止します。\n\nまた、Android 17以降で「高度な保護モード」を有効にしている場合、この機能はOSによって無効化されます。その場合でも、通知からワンタップでICOCAアプリを開く運用は引き続き利用できます。</string>
     <string name="consent_agree">理解して有効にする</string>
     <string name="consent_cancel">やめておく</string>
 
