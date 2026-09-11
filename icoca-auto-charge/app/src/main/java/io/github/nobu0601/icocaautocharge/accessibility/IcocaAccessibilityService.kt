@@ -7,6 +7,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import io.github.nobu0601.icocaautocharge.IcocaApp
 import io.github.nobu0601.icocaautocharge.balance.BalanceTextParser
 import io.github.nobu0601.icocaautocharge.core.IcocaConstants
+import io.github.nobu0601.icocaautocharge.core.LogRedactor
 import io.github.nobu0601.icocaautocharge.core.SecureLog
 import io.github.nobu0601.icocaautocharge.domain.BalanceReading
 import io.github.nobu0601.icocaautocharge.domain.BalanceSourceType
@@ -91,6 +92,9 @@ class IcocaAccessibilityService : AccessibilityService() {
             autoConfirmPayment = autoConfirmPayment,
         )
         session = s
+        // 1回のフローだけを見たいので、開始のたびに前回の記録を捨てる。
+        AccessibilityBridge.clearTrace()
+        trace("開始: 金額=$chargeAmountYen ドライラン=$dryRun 自動確定=$autoConfirmPayment")
         SecureLog.i(
             SecureLog.Tag.AUTOMATION,
             "automation session started amount=$chargeAmountYen dryRun=$dryRun " +
@@ -157,7 +161,11 @@ class IcocaAccessibilityService : AccessibilityService() {
 
         readBalance(texts, now)
 
-        if (AccessibilityBridge.dumpEnabled) {
+        val active = session
+        // 自動操作が走っている間は、設定に関係なくダンプを残す。
+        // 「実機で止まったが原因が分からない」を繰り返さないため、
+        // 止まった画面のノード構成を後から Debug 画面で見られるようにする。
+        if (AccessibilityBridge.dumpEnabled || (active != null && !active.isFinished)) {
             AccessibilityBridge.publishDump(
                 ScreenDump(
                     capturedAt = now,
@@ -168,8 +176,7 @@ class IcocaAccessibilityService : AccessibilityService() {
             )
         }
 
-        val active = session ?: return
-        if (active.isFinished) return
+        if (active == null || active.isFinished) return
         advance(active, root, texts, screen, pkg, now)
     }
 
@@ -191,6 +198,7 @@ class IcocaAccessibilityService : AccessibilityService() {
         now: Long,
     ) {
         session.onScreen(screen, now)
+        trace("画面=$screen step=${session.stepCount}")
 
         val guard = SafetyGuard(expectedSignature, session.autoConfirmPayment)
         val verdict = guard.check(
@@ -205,10 +213,12 @@ class IcocaAccessibilityService : AccessibilityService() {
 
         when (verdict) {
             is SafetyGuard.Verdict.Stop -> {
+                trace("中止: ${verdict.reason}")
                 session.finish(AutomationSession.Outcome.Stopped(verdict.reason, verdict.message))
                 return
             }
             is SafetyGuard.Verdict.Finish -> {
+                trace("ユーザーに引き渡し: ${verdict.screen}")
                 val outcome = if (verdict.screen == IcocaScreen.COMPLETED) {
                     AutomationSession.Outcome.Completed
                 } else {
@@ -226,7 +236,7 @@ class IcocaAccessibilityService : AccessibilityService() {
             IcocaScreen.MAIN -> clickIfFound(session, root, CHARGE_ENTRY_LABELS, now, "charge entry")
             IcocaScreen.CHARGE_ENTRY ->
                 clickIfFound(session, root, CHARGE_ENTRY_LABELS + CHARGE_METHOD_LABELS, now, "charge method")
-            IcocaScreen.CHARGE_AMOUNT -> clickAmount(session, root, guard, now)
+            IcocaScreen.CHARGE_AMOUNT -> clickAmount(session, root, texts, guard, now)
             // ここに来るのは autoConfirmPayment が有効なときだけ。
             // 無効なら SafetyGuard が Finish を返して、上の when で終わっている。
             IcocaScreen.PAYMENT_CONFIRM -> clickConfirm(session, root, texts, guard, now)
@@ -252,6 +262,7 @@ class IcocaAccessibilityService : AccessibilityService() {
         now: Long,
     ) {
         if (!guard.isAmountVisibleOnScreen(texts, session.chargeAmountYen)) {
+            trace("決済画面に設定額が無いため確定しない")
             session.finish(
                 AutomationSession.Outcome.Stopped(
                     ErrorReason.AMOUNT_MISMATCH,
@@ -262,15 +273,18 @@ class IcocaAccessibilityService : AccessibilityService() {
         }
         val node = NodeFinder.findClickableByExactText(root, CONFIRM_LABELS)
         if (node == null) {
+            // 確定ボタンが無いのに「支払いへ進む」ボタンがあるなら、
+            // ここはまだ確認ダイアログではなく金額選択画面。判定が寄りすぎただけなので、
+            // 確認ダイアログへ進む。このボタンを押しても決済は確定しない。
+            val proceed = NodeFinder.findClickableByTextSuffix(root, PROCEED_TO_PAYMENT_SUFFIXES)
+            if (proceed != null) {
+                trace("確定ボタンは無いが支払いへ進むボタンがあるので、まず確認画面へ進む")
+                performClick(session, proceed, "proceed to payment", now)
+                return
+            }
             // 押さずに待てば、進展しないまま STALL_TIMEOUT で安全に終わる。
             // どのラベルを足すべきか分かるよう、押せるものを控えておく。
-            val clickable = NodeFinder.walk(root)
-                .filter { it.isClickable }
-                .mapNotNull { NodeFinder.visibleText(it) }
-            SecureLog.w(
-                SecureLog.Tag.PAYMENT,
-                "confirm button not found; clickable labels on this screen: $clickable",
-            )
+            reportUnfound("確定ボタン", root)
             return
         }
         performClick(session, node, "confirm:${NodeFinder.visibleText(node)}", now)
@@ -295,36 +309,68 @@ class IcocaAccessibilityService : AccessibilityService() {
      * 金額ボタンを押す。
      *
      * **設定したチャージ金額と完全に一致するラベルのボタンしか押さない**（指示書 §11）。
-     * 一致するものが無ければ何もしない。近い金額で代用したりはしない。
+     * 近い金額で代用したりはしない。
+     *
+     * 一致するボタンが無い場合は2つに分かれる。
+     *  - 設定額がすでに画面に出ている → 押す必要がないので、そのまま次へ進む
+     *  - 設定額がどこにも無い → 想定した画面ではないので、はっきり失敗させる
+     *
+     * どちらの場合も「黙って待つ」はしない。金額選択画面は押しても見た目が
+     * 変わらないことがあり、次のイベントが来ないまま永久に止まってしまうため。
      */
     private fun clickAmount(
         session: AutomationSession,
         root: AccessibilityNodeInfo,
+        texts: List<String>,
         guard: SafetyGuard,
         now: Long,
     ) {
         if (!session.amountSelected) {
             val variants = guard.amountLabelVariants(session.chargeAmountYen)
-            val node = NodeFinder.findClickableByExactText(root, variants)
-            if (node == null) {
-                SecureLog.w(
-                    SecureLog.Tag.AUTOMATION,
-                    "amount button for ${session.chargeAmountYen} not found",
-                )
-                return
+            // 入力欄を除外する。実機の金額選択画面は上部に編集可能な金額欄があり、
+            // そこにも下のプリセットと同じ「5,000」が出る。入力欄を押しても
+            // キーボードが出るだけで先に進まない。
+            val node = NodeFinder.findClickableByExactText(root, variants, excludeEditable = true)
+            when {
+                node != null -> {
+                    val label = NodeFinder.visibleText(node)
+                    if (!guard.verifyAmountLabel(label, session.chargeAmountYen)) {
+                        trace("金額ボタンのラベルが設定と不一致のため中止")
+                        session.finish(
+                            AutomationSession.Outcome.Stopped(
+                                ErrorReason.AMOUNT_MISMATCH,
+                                "選択しようとした金額が設定と一致しません",
+                            ),
+                        )
+                        return
+                    }
+                    performClick(session, node, "amount:$label", now)
+                    session.markAmountSelected()
+                }
+                // ボタンが見つからなくても、設定額がすでに金額欄に入っているなら
+                // 選び直す必要はない。ここで諦めて return すると、画面が変わらない＝
+                // 次のアクセシビリティイベントが来ないため、金額選択画面で永久に止まる。
+                guard.isAmountVisibleOnScreen(texts, session.chargeAmountYen) -> {
+                    trace("金額ボタンは見つからないが、設定額は画面に出ているのでそのまま進む")
+                    SecureLog.i(
+                        SecureLog.Tag.AUTOMATION,
+                        "amount preset not found but the configured amount is already on screen",
+                    )
+                    session.markAmountSelected()
+                }
+                // 設定額がどこにも見当たらない。押せるものを控えて、はっきり失敗させる。
+                // 黙って待つと、履歴にも通知にも何も残らないまま終わってしまう。
+                else -> {
+                    reportUnfound("金額ボタン", root)
+                    session.finish(
+                        AutomationSession.Outcome.Stopped(
+                            ErrorReason.AMOUNT_MISMATCH,
+                            "チャージ金額を選べませんでした（設定額が画面に見当たりません）",
+                        ),
+                    )
+                    return
+                }
             }
-            val label = NodeFinder.visibleText(node)
-            if (!guard.verifyAmountLabel(label, session.chargeAmountYen)) {
-                session.finish(
-                    AutomationSession.Outcome.Stopped(
-                        ErrorReason.AMOUNT_MISMATCH,
-                        "選択しようとした金額が設定と一致しません",
-                    ),
-                )
-                return
-            }
-            performClick(session, node, "amount:$label", now)
-            session.markAmountSelected()
         }
 
         // 実機の金額選択画面は、金額ボタンと支払いへ進むボタンが同じ画面にある。
@@ -355,10 +401,29 @@ class IcocaAccessibilityService : AccessibilityService() {
     ) {
         val node = NodeFinder.findClickableByTextSuffix(root, PROCEED_TO_PAYMENT_SUFFIXES)
         if (node == null) {
-            SecureLog.w(SecureLog.Tag.AUTOMATION, "payment button not found on the amount screen")
+            reportUnfound("支払いへ進むボタン", root)
             return
         }
         performClick(session, node, "proceed to payment", now)
+    }
+
+    /**
+     * 探していたボタンが見つからなかったことを、後から追えるように記録する。
+     *
+     * 何が押せたのかが分からないと直しようがないので、画面上のクリック可能な
+     * ラベルを添える。ラベルにはカード番号（「****9804でチャージ」）が入りうるため、
+     * 必ず [LogRedactor] を通してから出す（指示書 §17, §24）。
+     */
+    private fun reportUnfound(what: String, root: AccessibilityNodeInfo) {
+        val labels = LogRedactor.redact(
+            NodeFinder.clickableLabels(root).joinToString(" / ").take(MAX_TRACE_LABEL_CHARS),
+        )
+        trace("$what が見つからない。押せるもの: $labels")
+        SecureLog.w(SecureLog.Tag.AUTOMATION, "$what not found; clickable labels: $labels")
+    }
+
+    private fun trace(line: String) {
+        AccessibilityBridge.trace(LogRedactor.redact(line))
     }
 
     private fun performClick(
@@ -370,12 +435,14 @@ class IcocaAccessibilityService : AccessibilityService() {
         if (session.dryRun) {
             session.plannedClicks += what
             session.onStep(now)
+            trace("[ドライラン] 押す予定: $what")
             SecureLog.i(SecureLog.Tag.AUTOMATION, "[dryRun] would click $what")
             return
         }
         val ok = runCatching { node.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
             .getOrDefault(false)
         session.onStep(now)
+        trace(if (ok) "押した: $what" else "押せなかった: $what")
         SecureLog.i(SecureLog.Tag.AUTOMATION, "click $what -> $ok")
         if (!ok) {
             session.finish(
@@ -434,5 +501,8 @@ class IcocaAccessibilityService : AccessibilityService() {
         )
 
         const val MAX_DUMP_NODES = 120
+
+        /** 診断行に載せるラベル一覧の長さの上限。 */
+        const val MAX_TRACE_LABEL_CHARS = 300
     }
 }

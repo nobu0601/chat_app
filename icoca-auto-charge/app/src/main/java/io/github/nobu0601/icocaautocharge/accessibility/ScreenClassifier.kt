@@ -1,6 +1,7 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
 import io.github.nobu0601.icocaautocharge.balance.BalanceTextParser
+import io.github.nobu0601.icocaautocharge.core.TextNormalizer
 
 /** ICOCA アプリのどの画面にいるかの推定結果。 */
 enum class IcocaScreen {
@@ -73,21 +74,43 @@ object ScreenClassifier {
     )
 
     /**
-     * 決済の最終確認を示す語。
+     * **最終確認ダイアログにしか出ない**語。これが出たら即 PAYMENT_CONFIRM。
      *
-     * 「チャージする」のような、メイン画面のボタンにも出てきうる汎用語は入れない。
-     * ここで誤判定すると自動操作が常に止まってしまい、機能が死ぬため。
+     * 実機の確認ダイアログの見出しと本文（2026-09-09 / Pixel 8a）。
+     * 「チャージ確認」「JR西日本へお支払い額：5,000円」「チャージしますか？」
      */
-    private val PAYMENT_KEYWORDS = listOf(
-        // 実機の確認ダイアログの見出しと本文（2026-09-09 / Pixel 8a）。
-        // 「チャージ確認」「JR西日本へお支払い額：5,000円」「チャージしますか？」
+    private val STRONG_PAYMENT_KEYWORDS = listOf(
         "チャージ確認", "チャージしますか", "お支払い額",
-        "決済", "お支払い", "支払う", "この内容で", "以下の内容で", "内容をご確認",
+        "この内容で", "以下の内容で", "内容をご確認", "よろしいですか",
+    )
+
+    /**
+     * 決済まわりで出るが、**金額選択画面にも出うる**語。
+     *
+     * 金額選択画面にはカードの行（「お支払い方法」など）が載っている。
+     * これらを最終確認と同じ強さで扱うと、金額選択画面が PAYMENT_CONFIRM と
+     * 誤判定され、そこで自動操作が終わってしまう。
+     * 実際、実機では金額選択画面で毎回止まっていた。
+     *
+     * そこで判定順を下げ、**金額選択画面でないと分かってから**適用する。
+     * 取りこぼしても最後の砦は残る: 確定ボタンは
+     * [io.github.nobu0601.icocaautocharge.accessibility.SafetyGuard] の金額確認と
+     * 既知のラベル完全一致を通らない限り押されない。
+     */
+    private val WEAK_PAYMENT_KEYWORDS = listOf(
+        "決済", "お支払い", "支払う",
     )
 
     private val CHARGE_AMOUNT_KEYWORDS = listOf(
         "チャージ金額", "金額を選択", "チャージする金額", "入金金額",
     )
+
+    /**
+     * 金額選択画面から確認へ進むボタンの末尾（「****9804でチャージ」）。
+     *
+     * このボタンが見えている＝まだ確認ダイアログではない、という強い手がかり。
+     */
+    private const val PROCEED_BUTTON_SUFFIX = "でチャージ"
 
     private val CHARGE_ENTRY_KEYWORDS = listOf(
         "チャージ方法", "チャージ手段", "支払い方法",
@@ -117,8 +140,11 @@ object ScreenClassifier {
         // 3. 完了。
         if (COMPLETED_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.COMPLETED
 
-        // 4. 決済確認。ここに来たら自動操作を終える。
-        if (PAYMENT_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PAYMENT_CONFIRM
+        // 4. 決済確認。確認ダイアログにしか出ない語だけをここで見る。
+        //    確認ダイアログは金額選択画面の上に重なって出るため、
+        //    両方の文字が同時に見えることがある。強い語を先に見ることで、
+        //    重なっている間は確認ダイアログ側として扱われる。
+        if (STRONG_PAYMENT_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PAYMENT_CONFIRM
 
         // 5. 金額選択。明示的な見出しか、チャージ額らしい数字が並んでいるか。
         //
@@ -130,13 +156,19 @@ object ScreenClassifier {
             val yen = BalanceTextParser.parseAmount(text)
             yen != null && yen >= CHARGE_DENOMINATION_UNIT && yen % CHARGE_DENOMINATION_UNIT == 0
         }
+        val hasProceedButton = texts.any { TextNormalizer.normalize(it).endsWith(PROCEED_BUTTON_SUFFIX) }
         if (CHARGE_AMOUNT_KEYWORDS.any { joined.contains(it) } ||
-            denominationCount >= MIN_DENOMINATIONS
+            denominationCount >= MIN_DENOMINATIONS ||
+            (hasProceedButton && denominationCount >= 1)
         ) {
             return IcocaScreen.CHARGE_AMOUNT
         }
 
         if (CHARGE_ENTRY_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.CHARGE_ENTRY
+
+        // 6. 金額選択画面ではないと分かったうえで、決済まわりの一般語を見る。
+        if (WEAK_PAYMENT_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PAYMENT_CONFIRM
+
         if (PROCESSING_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PROCESSING
 
         // 6. 残高が見えていればメイン画面とみなす。

@@ -105,6 +105,9 @@ class MainViewModel(private val locator: ServiceLocator) : ViewModel() {
     private val _dump: StateFlow<ScreenDump?> = AccessibilityBridge.lastDump
     val dump: StateFlow<ScreenDump?> get() = _dump
 
+    /** 自動操作が何を見て何をしたか。実機で止まった原因を追うために出す。 */
+    val trace: StateFlow<List<String>> get() = AccessibilityBridge.trace
+
     private val _probeReport = MutableStateFlow<String?>(null)
     val probeReport: StateFlow<String?> = _probeReport.asStateFlow()
 

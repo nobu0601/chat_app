@@ -44,6 +44,7 @@ fun DebugScreen(
     state: UiState,
     workState: String,
     dump: ScreenDump?,
+    trace: List<String>,
     probeReport: String?,
     dumpEnabled: Boolean,
     dryRun: Boolean,
@@ -127,6 +128,20 @@ fun DebugScreen(
             SectionCard("調査結果") {
                 Text(
                     report,
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                )
+            }
+        }
+
+        // 自動操作が途中で止まったとき、logcat を取れない環境ではここだけが手がかりになる。
+        // ダンプのトグルとは無関係に、チャージ処理が走れば必ず溜まる。
+        SectionCard(stringResource(R.string.dbg_trace)) {
+            if (trace.isEmpty()) {
+                Text("まだ記録がありません。チャージ処理を1回動かすとここに残ります。")
+            } else {
+                Text(
+                    trace.joinToString("\n") { "· $it" },
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                 )

@@ -131,6 +131,7 @@
     <string name="dbg_app_version">アプリバージョン</string>
     <string name="dbg_probe">exported コンポーネントを列挙</string>
     <string name="dbg_dump">最後にダンプした画面</string>
+    <string name="dbg_trace">自動操作の記録</string>
     <string name="dbg_dump_toggle">画面ダンプを記録</string>
     <string name="dbg_dry_run">自動操作ドライラン</string>
     <string name="dbg_nfc_read">NFC残高読み取り（物理カード）</string>

@@ -20,6 +20,16 @@ object LogRedactor {
     private val LONG_DIGIT_RUN = Regex("""\d(?:[ -]?\d){11,}""")
 
     /**
+     * すでにアプリ側でマスクされたカード番号（「****9804」など）。
+     *
+     * 下4桁だけでも [LONG_DIGIT_RUN] の閾値には届かないので素通りしてしまう。
+     * 実機の支払いボタンのラベルが「****9804でチャージ」であり、
+     * このラベルはログにも診断表示にも載りうるため、ここで潰しておく。
+     * 金額は「5,000」のように伏字を伴わないので巻き添えにならない。
+     */
+    private val MASKED_PAN = Regex("""[*＊]{2,}[ -]?\d{2,6}""")
+
+    /**
      * 「キーワード + 区切り + 値」の形。値だけをマスクする。
      * 長い候補を先に並べて、部分一致で短い方に食われないようにしている。
      */
@@ -34,6 +44,7 @@ object LogRedactor {
             m.groupValues[1] + m.groupValues[2] + MASK
         }
         out = LONG_DIGIT_RUN.replace(out, MASK)
+        out = MASKED_PAN.replace(out, MASK)
         return out
     }
 }

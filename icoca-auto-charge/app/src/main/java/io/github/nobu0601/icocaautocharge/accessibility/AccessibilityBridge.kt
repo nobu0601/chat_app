@@ -29,6 +29,20 @@ object AccessibilityBridge {
     private val _lastDump = MutableStateFlow<ScreenDump?>(null)
     val lastDump: StateFlow<ScreenDump?> = _lastDump.asStateFlow()
 
+    /**
+     * 自動操作が何を見て何をしたかの記録（Debug 画面用）。
+     *
+     * 実機で「どこかで止まる」が起きたとき、logcat を取れない環境では
+     * 原因がまったく分からなかった。止まった瞬間の判断をここに残しておけば、
+     * Debug 画面のスクリーンショット1枚で追える。
+     *
+     * **メモリ上にのみ保持し、永続化しない**（指示書 §17）。
+     * 書き込む側は必ず [io.github.nobu0601.icocaautocharge.core.LogRedactor] を
+     * 通してから渡すこと。ボタンのラベルにはカード番号が入りうる（指示書 §24）。
+     */
+    private val _trace = MutableStateFlow<List<String>>(emptyList())
+    val trace: StateFlow<List<String>> = _trace.asStateFlow()
+
     /** Debug 設定。ドライラン中はクリックを実行せず、押す予定だけを記録する。 */
     @Volatile var dryRun: Boolean = false
 
@@ -56,6 +70,18 @@ object AccessibilityBridge {
     internal fun publishDump(dump: ScreenDump) {
         _lastDump.value = dump
     }
+
+    /** 自動操作の判断を1行残す。渡す前に必ず秘匿処理を済ませておくこと。 */
+    internal fun trace(line: String) {
+        _trace.value = (_trace.value + line).takeLast(MAX_TRACE_LINES)
+    }
+
+    fun clearTrace() {
+        _trace.value = emptyList()
+    }
+
+    /** 記録しておく行数。古いものから捨てる。 */
+    private const val MAX_TRACE_LINES = 40
 
     fun service(): IcocaAccessibilityService? = serviceRef?.get()
 

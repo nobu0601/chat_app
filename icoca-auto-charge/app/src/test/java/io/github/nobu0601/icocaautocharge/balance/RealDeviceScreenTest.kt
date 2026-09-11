@@ -3,6 +3,7 @@ package io.github.nobu0601.icocaautocharge.balance
 import io.github.nobu0601.icocaautocharge.accessibility.IcocaScreen
 import io.github.nobu0601.icocaautocharge.accessibility.SafetyGuard
 import io.github.nobu0601.icocaautocharge.accessibility.ScreenClassifier
+import io.github.nobu0601.icocaautocharge.core.LogRedactor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -171,6 +172,72 @@ class RealDeviceScreenTest {
         val guard = SafetyGuard(expectedSignature = null, autoConfirmPayment = true)
         assertTrue(guard.isAmountVisibleOnScreen(paymentConfirmDialog, 5_000))
         assertFalse(guard.isAmountVisibleOnScreen(paymentConfirmDialog, 10_000))
+    }
+
+    /**
+     * 金額選択画面にカードの行が載っている場合（実機で毎回ここで止まっていた）。
+     *
+     * 「お支払い方法」の中の「お支払い」を決済確認の語として扱っていたため、
+     * 金額選択画面が PAYMENT_CONFIRM と判定されていた。すると
+     *  - 「決済の確定まで自動で押す」が OFF なら、その場で正常終了して止まる
+     *  - ON でも、確定ボタンのラベル（「チャージする」等）が画面に無いので
+     *    何も押せず、タイムアウトまで止まる
+     * どちらの設定でも金額選択画面から先に進めなくなっていた。
+     */
+    private val chargeAmountScreenWithCardRow = chargeAmountScreen.toMutableList().apply {
+        add(indexOf("****9804でチャージ"), "お支払い方法")
+        add(indexOf("****9804でチャージ"), "JCB ****9804")
+    }
+
+    @Test
+    fun `カード行のある金額選択画面を決済確認と取り違えない`() {
+        assertEquals(
+            IcocaScreen.CHARGE_AMOUNT,
+            ScreenClassifier.classify(chargeAmountScreenWithCardRow),
+        )
+    }
+
+    @Test
+    fun `支払い方法の見出しだけで決済確認と判定しない`() {
+        assertEquals(
+            IcocaScreen.CHARGE_AMOUNT,
+            ScreenClassifier.classify(chargeAmountScreen + "お支払い方法"),
+        )
+    }
+
+    @Test
+    fun `確認ダイアログが金額選択画面に重なっていても決済確認と判定する`() {
+        // 実機のダイアログは金額選択画面の上に出るため、両方の文字が同時に見える。
+        // ここで金額選択画面と判定すると、確定ボタンを押す判断に入れなくなる。
+        assertEquals(
+            IcocaScreen.PAYMENT_CONFIRM,
+            ScreenClassifier.classify(chargeAmountScreen + paymentConfirmDialog),
+        )
+    }
+
+    @Test
+    fun `プリセットが読めなくても支払いボタンがあれば金額選択画面と判定する`() {
+        // 金額のプリセットが contentDescription 側にしか無い等で読めない場合でも、
+        // 「〜でチャージ」ボタンが見えていれば金額選択画面。
+        assertEquals(
+            IcocaScreen.CHARGE_AMOUNT,
+            ScreenClassifier.classify(
+                listOf("チャージ", "5,000", "円", "****9804でチャージ"),
+            ),
+        )
+    }
+
+    @Test
+    fun `支払いボタンのカード番号はログに出ない`() {
+        val redacted = LogRedactor.redact("支払いへ進むボタン: ****9804でチャージ")
+        assertFalse(redacted.contains("9804"))
+        assertTrue(redacted.contains("でチャージ"))
+    }
+
+    @Test
+    fun `金額はマスクされない`() {
+        // カード番号を潰すために金額まで潰すと、診断の役に立たなくなる。
+        assertEquals("5,000 / 10,000", LogRedactor.redact("5,000 / 10,000"))
     }
 
     @Test

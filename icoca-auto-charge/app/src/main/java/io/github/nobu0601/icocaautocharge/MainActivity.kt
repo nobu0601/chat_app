@@ -203,6 +203,7 @@ private fun AppRoot(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val dump by viewModel.dump.collectAsStateWithLifecycle()
+    val trace by viewModel.trace.collectAsStateWithLifecycle()
     val probeReport by viewModel.probeReport.collectAsStateWithLifecycle()
     val workState by workStateFlow.collectAsStateWithLifecycle()
 
@@ -264,6 +265,7 @@ private fun AppRoot(
                     state = state,
                     workState = workState,
                     dump = dump,
+                    trace = trace,
                     probeReport = probeReport,
                     dumpEnabled = dumpEnabled,
                     dryRun = dryRun,
