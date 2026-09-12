@@ -208,6 +208,7 @@ class IcocaAccessibilityService : AccessibilityService() {
                 screen = screen,
                 stepCount = session.stepCount,
                 millisSinceProgress = session.millisSinceProgress(now),
+                unknownStreak = session.unknownStreak,
             ),
         )
 
@@ -227,6 +228,12 @@ class IcocaAccessibilityService : AccessibilityService() {
                 }
                 session.finish(outcome)
                 SecureLog.i(SecureLog.Tag.PAYMENT, "handing control to the user at $screen")
+                return
+            }
+            // まだ判断できない画面。何も押さずに次のイベントを待つ。
+            SafetyGuard.Verdict.Wait -> {
+                trace("判別できない画面のため待機（${session.unknownStreak}回目）")
+                if (session.unknownStreak == 1) reportUnfound("判別できる要素", root)
                 return
             }
             SafetyGuard.Verdict.Proceed -> Unit

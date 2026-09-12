@@ -30,6 +30,20 @@ class AutomationSession(
         private set
 
     /**
+     * 判別できない画面が続いた回数。
+     *
+     * ICOCA アプリは画面を切り替える途中で、まだ中身が出来ていないツリーを
+     * 一瞬だけ見せる（実機では「更新」と時刻しか無い13ノードの画面が挟まった）。
+     * これを1回でも「想定外の画面」として中止すると、チャージ画面へ移る途中で
+     * 毎回セッションが死ぬ。かといって無制限に待つと、本当に知らない画面に
+     * 迷い込んだときに居座り続けてしまう。そこで回数で区切る。
+     *
+     * 判別できた画面を1回見れば 0 に戻る。
+     */
+    var unknownStreak: Int = 0
+        private set
+
+    /**
      * 金額選択画面で、設定した金額のボタンを押し終えたか。
      *
      * 実機の金額選択画面は「金額を選ぶ」と「支払いへ進む」が同じ画面にあるため、
@@ -63,6 +77,7 @@ class AutomationSession(
             lastScreen = screen
             lastProgressAt = nowMillis
         }
+        if (screen == IcocaScreen.UNKNOWN) unknownStreak++ else unknownStreak = 0
     }
 
     fun onStep(nowMillis: Long) {

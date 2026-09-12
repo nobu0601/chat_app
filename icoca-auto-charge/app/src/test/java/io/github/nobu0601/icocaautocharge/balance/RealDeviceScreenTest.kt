@@ -1,9 +1,12 @@
 package io.github.nobu0601.icocaautocharge.balance
 
+import io.github.nobu0601.icocaautocharge.accessibility.AutomationSession
 import io.github.nobu0601.icocaautocharge.accessibility.IcocaScreen
 import io.github.nobu0601.icocaautocharge.accessibility.SafetyGuard
 import io.github.nobu0601.icocaautocharge.accessibility.ScreenClassifier
+import io.github.nobu0601.icocaautocharge.core.IcocaConstants
 import io.github.nobu0601.icocaautocharge.core.LogRedactor
+import io.github.nobu0601.icocaautocharge.domain.ErrorReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -239,6 +242,73 @@ class RealDeviceScreenTest {
         // カード番号を潰すために金額まで潰すと、診断の役に立たなくなる。
         assertEquals("5,000 / 10,000", LogRedactor.redact("5,000 / 10,000"))
     }
+
+    /**
+     * 「チャージ」を押した直後に一瞬だけ挟まる、中身の出来ていない画面
+     * （2026-09-12 に実機の「自動操作の記録」から採取）。
+     *
+     * ノードは13個あるが、文字を持つのは「更新」と時刻だけ。残高も見出しも無い。
+     * 記録に残っていた実際の流れはこうだった。
+     *
+     *   画面=MAIN step=0 → 押した: charge entry:チャージ
+     *   画面=UNKNOWN step=1 → 中止: UNEXPECTED_SCREEN
+     *
+     * つまりチャージ画面に着く前にセッションが死んでいた。ICOCA アプリ側は
+     * そのまま遷移を続けるので、利用者からは「チャージ画面が出たまま
+     * 自動操作が止まった」ようにしか見えない。金額の設定値とは無関係に起きる。
+     */
+    private val transitionalBlankScreen = listOf("更新", "11:13")
+
+    @Test
+    fun `遷移中の空の画面は判別できない画面として扱う`() {
+        assertEquals(IcocaScreen.UNKNOWN, ScreenClassifier.classify(transitionalBlankScreen))
+    }
+
+    @Test
+    fun `判別できない画面が一度出ただけでは自動操作を中止しない`() {
+        val guard = SafetyGuard(expectedSignature = null, autoConfirmPayment = true)
+        val verdict = guard.check(unknownScreenContext(streak = 1))
+        assertEquals(SafetyGuard.Verdict.Wait, verdict)
+    }
+
+    @Test
+    fun `判別できない画面が続いたら自動操作を中止する`() {
+        val guard = SafetyGuard(expectedSignature = null, autoConfirmPayment = true)
+        val verdict = guard.check(
+            unknownScreenContext(streak = SafetyGuard.MAX_UNKNOWN_STREAK + 1),
+        )
+        assertTrue(verdict is SafetyGuard.Verdict.Stop)
+        assertEquals(
+            ErrorReason.UNEXPECTED_SCREEN,
+            (verdict as SafetyGuard.Verdict.Stop).reason,
+        )
+    }
+
+    @Test
+    fun `判別できる画面を挟むと連続回数は0に戻る`() {
+        val session = AutomationSession(
+            chargeAmountYen = 3_000,
+            startedAt = 0L,
+            dryRun = true,
+        )
+        session.onScreen(IcocaScreen.MAIN, 0L)
+        session.onScreen(IcocaScreen.UNKNOWN, 1L)
+        session.onScreen(IcocaScreen.UNKNOWN, 2L)
+        assertEquals(2, session.unknownStreak)
+
+        // 遷移が終わって金額選択画面に着けば、それまでの空振りは無かったことにする。
+        session.onScreen(IcocaScreen.CHARGE_AMOUNT, 3L)
+        assertEquals(0, session.unknownStreak)
+    }
+
+    private fun unknownScreenContext(streak: Int) = SafetyGuard.Context(
+        packageName = IcocaConstants.PACKAGE_NAME,
+        actualSignature = null,
+        screen = IcocaScreen.UNKNOWN,
+        stepCount = 1,
+        millisSinceProgress = 0L,
+        unknownStreak = streak,
+    )
 
     @Test
     fun `金額ボタンは円が付かなくても設定額と一致すると判定できる`() {
