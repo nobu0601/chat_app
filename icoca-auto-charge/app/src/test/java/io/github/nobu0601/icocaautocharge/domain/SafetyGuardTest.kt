@@ -19,7 +19,8 @@ class SafetyGuardTest {
         screen: IcocaScreen = IcocaScreen.CHARGE_AMOUNT,
         steps: Int = 1,
         sinceProgress: Long = 0,
-    ) = SafetyGuard.Context(pkg, signature, screen, steps, sinceProgress)
+        unknownStreak: Int = 0,
+    ) = SafetyGuard.Context(pkg, signature, screen, steps, sinceProgress, unknownStreak)
 
     @Test
     fun `対象アプリが違えば停止する`() {
@@ -74,10 +75,39 @@ class SafetyGuardTest {
     }
 
     @Test
-    fun `自動確定を有効にしてもエラー画面と想定外画面では停止する`() {
+    fun `自動確定を有効にしてもエラー画面では停止する`() {
         val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
         assertTrue(autoGuard.check(ctx(screen = IcocaScreen.ERROR)) is SafetyGuard.Verdict.Stop)
-        assertTrue(autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN)) is SafetyGuard.Verdict.Stop)
+    }
+
+    @Test
+    fun `想定外の画面では何も押さない`() {
+        // 判別できない画面で「押さない」ことがここの本題。
+        // 中止するか待つかは別問題で、Proceed にだけは絶対にならない。
+        val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
+        for (streak in 0..SafetyGuard.MAX_UNKNOWN_STREAK + 2) {
+            val v = autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = streak))
+            assertTrue("streak=$streak", v !is SafetyGuard.Verdict.Proceed)
+        }
+    }
+
+    @Test
+    fun `想定外の画面が一瞬挟まっただけでは中止しない`() {
+        // 実機では「チャージ」を押した直後、まだ中身の無い画面が1枚挟まる。
+        // これで中止していたため、チャージ画面に着く前に毎回セッションが死んでいた。
+        val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
+        val v = autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = 1))
+        assertEquals(SafetyGuard.Verdict.Wait, v)
+    }
+
+    @Test
+    fun `想定外の画面が続いたら中止する`() {
+        // 遷移の途中ではなく、本当に知らない画面に居座っている場合。
+        val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
+        val v = autoGuard.check(
+            ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = SafetyGuard.MAX_UNKNOWN_STREAK + 1),
+        )
+        assertEquals(ErrorReason.UNEXPECTED_SCREEN, (v as SafetyGuard.Verdict.Stop).reason)
     }
 
     @Test

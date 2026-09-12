@@ -34,10 +34,15 @@ enum class IcocaScreen {
     ;
 
     /**
-     * この画面を見たら自動操作を止めるべきか（指示書 §11）。
+     * この画面で自動操作の手を止めるべきか（指示書 §11）。
      *
      * PAYMENT_CONFIRM は「エラーだから止める」のではなく
      * 「決済はユーザーの意思で行う」ために止める。
+     *
+     * **「押さない」であって「セッションを畳む」ではない。**
+     * どう畳むかは [SafetyGuard] が決める。UNKNOWN はここでは true だが、
+     * 画面の切り替わりの途中で一瞬出るだけのことがあるため、
+     * SafetyGuard は最初の数回を待つ（押しはしない）。
      */
     val requiresStop: Boolean
         get() = this == AUTHENTICATION || this == ERROR ||
@@ -171,7 +176,7 @@ object ScreenClassifier {
 
         if (PROCESSING_KEYWORDS.any { joined.contains(it) }) return IcocaScreen.PROCESSING
 
-        // 6. 残高が見えていればメイン画面とみなす。
+        // 7. 残高が見えていればメイン画面とみなす。
         if (texts.any { BalanceTextParser.hasBalanceLabel(it) }) return IcocaScreen.MAIN
 
         return IcocaScreen.UNKNOWN
