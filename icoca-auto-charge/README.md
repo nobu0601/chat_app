@@ -201,10 +201,11 @@ adb logcat | grep -i "Background activity launch"
 
 | ファイル | 内容 |
 |---|---|
+| [`docs/DESIGN.md`](docs/DESIGN.md) | **設計書。まずこれを読む。** 構成・状態機械・判定ロジック・自動操作・安全設計・実機で判明した制約 |
 | [`docs/PROJECT_RESEARCH.md`](docs/PROJECT_RESEARCH.md) | モバイルICOCA / Android 側の事前調査と、各手段の可否判定 |
-| [`docs/TECHNICAL_FEASIBILITY.md`](docs/TECHNICAL_FEASIBILITY.md) | 実機検証の手順と記入欄（**未実施**） |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 状態機械・判定ロジック・安全設計 |
+| [`docs/TECHNICAL_FEASIBILITY.md`](docs/TECHNICAL_FEASIBILITY.md) | 実機検証の手順と結果 |
 | [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md) | Unit Test / Lint / 実機テスト21項目 |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 旧・設計。DESIGN.md に統合済み（章番号の対応表） |
 
 ## ライセンスと注意
 
