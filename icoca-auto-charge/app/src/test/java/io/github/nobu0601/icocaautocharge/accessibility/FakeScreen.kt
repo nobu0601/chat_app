@@ -88,10 +88,26 @@ class FakeScreen(
 
     override fun clickableLabels(): List<String> = buttons.keys.toList()
 
+    /**
+     * `ACTION_CLICK` が通らないラベルでも、座標タップなら通る。
+     *
+     * 実機の「****9804でチャージ」がこれ。`isClickable=false` の `TextView` なので
+     * `ACTION_CLICK` は拒否されるが、bounds を叩けば反応する。
+     */
+    var gestureFallbackWorks: Boolean = false
+
+    /** 座標タップに落ちた回数。 */
+    var gestureTaps: Int = 0
+
     override fun click(target: ClickTarget): Boolean {
         clickAttempts++
         if (!clickSucceeds) return false
-        if ((target.label ?: "") in unclickableLabels) return false
+        if ((target.label ?: "") in unclickableLabels) {
+            if (!gestureFallbackWorks) return false
+            gestureTaps++
+            clicks += target.label ?: target.key
+            return true
+        }
         if (failFirstClicks > 0) {
             failFirstClicks--
             return false

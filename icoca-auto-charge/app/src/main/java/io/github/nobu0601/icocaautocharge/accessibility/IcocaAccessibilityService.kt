@@ -1,7 +1,10 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityService.GestureResultCallback
+import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import io.github.nobu0601.icocaautocharge.IcocaApp
@@ -20,6 +23,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -45,7 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - ICOCA アプリ以外の監視。`accessibility_service_config.xml` の packageNames で限定
  * - 読み取った内容の永続化・送信
  */
-class IcocaAccessibilityService : AccessibilityService() {
+class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var loop: Job? = null
@@ -230,7 +235,7 @@ class IcocaAccessibilityService : AccessibilityService() {
                 screen = IcocaScreen.UNKNOWN,
                 texts = emptyList(),
                 nodes = emptyList(),
-                access = NodeScreenAccess(root),
+                access = NodeScreenAccess(root, this),
             )
         }
 
@@ -251,7 +256,7 @@ class IcocaAccessibilityService : AccessibilityService() {
             screen = screen,
             texts = texts,
             nodes = summaries,
-            access = NodeScreenAccess(root),
+            access = NodeScreenAccess(root, this),
         )
     }
 
@@ -308,6 +313,48 @@ class IcocaAccessibilityService : AccessibilityService() {
         }
     }
 
+    /**
+     * 画面を1回叩く（[GesturePerformer]）。
+     *
+     * `ACTION_CLICK` が通らないノード用の最後の手段。呼ばれるのは
+     * [NodeScreenAccess] がテキストで特定したノードの bounds 中心に対してのみで、
+     * 座標を決め打ちすることはない。
+     *
+     * `dispatchGesture` は非同期なので、完了を短く待って結果を返す。
+     * **true でも「チャージできた」ではない。** 画面が変わったかは呼び出し側が確かめる。
+     */
+    override fun tap(x: Float, y: Float): Boolean {
+        val path = Path().apply { moveTo(x, y) }
+        val stroke = GestureDescription.StrokeDescription(path, 0L, TAP_DURATION_MILLIS)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+
+        val done = CountDownLatch(1)
+        var completed = false
+        val dispatched = runCatching {
+            dispatchGesture(
+                gesture,
+                object : GestureResultCallback() {
+                    override fun onCompleted(description: GestureDescription?) {
+                        completed = true
+                        done.countDown()
+                    }
+
+                    override fun onCancelled(description: GestureDescription?) {
+                        done.countDown()
+                    }
+                },
+                null,
+            )
+        }.getOrDefault(false)
+
+        if (!dispatched) {
+            SecureLog.w(SecureLog.Tag.AUTOMATION, "gesture dispatch refused")
+            return false
+        }
+        runCatching { done.await(GESTURE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS) }
+        return completed
+    }
+
     private fun AccessibilityNodeInfo.toSummary() = NodeSummary(
         className = className?.toString(),
         viewId = viewIdResourceName,
@@ -332,5 +379,11 @@ class IcocaAccessibilityService : AccessibilityService() {
 
     private companion object {
         const val MAX_DUMP_NODES = 120
+
+        /** タップの押下時間。短すぎると無視されることがある。 */
+        const val TAP_DURATION_MILLIS = 60L
+
+        /** ジェスチャー完了を待つ上限。 */
+        const val GESTURE_TIMEOUT_MILLIS = 1_500L
     }
 }

@@ -12,7 +12,14 @@ import io.github.nobu0601.icocaautocharge.core.TextNormalizer
  *
  * 探索は [NodeFinder] に委ねる。座標は一切扱わない（指示書 §26）。
  */
-class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
+class NodeScreenAccess(
+    private val root: AccessibilityNodeInfo,
+    /**
+     * `ACTION_CLICK` が拒否されたときの最後の手段。
+     * null なら座標タップは行わない（テストや、ジェスチャー権限が無い場合）。
+     */
+    private val gesture: GesturePerformer? = null,
+) : ScreenAccess {
 
     /** [find] が返した [ClickTarget] から実ノードに戻るための対応表。 */
     private val resolved = HashMap<String, NodeFinder.Match>()
@@ -115,8 +122,38 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
             attempts += "alt:${candidate.className?.toString()?.substringAfterLast('.')}=$ok"
             if (ok) return true
         }
-        attempts += "全滅(ref=${reference2.length}文字)"
-        return false
+        // ACTION_CLICK はどこでも通らなかった。
+        //
+        // 実機の ICOCA では、これが通常の結果になる画面がある
+        // （isClickable=false の TextView で、祖先も押せない）。
+        // ここまで来たら、テキストで特定したノードの bounds を叩く。
+        // **固定座標ではない。** ノード由来なので、レイアウトが変われば一緒に動く。
+        return tapOnNode(node, reference2)
+    }
+
+    /**
+     * ノードの中心を1回叩く（[GesturePerformer]）。
+     *
+     * 叩くのは **[NodeFinder.findClickableByTextContains] がテキストで特定したノード**の
+     * 範囲内だけ。座標を決め打ちすることはない。
+     * 大きさが無い・画面外にあるノードは叩かない。
+     */
+    private fun tapOnNode(node: AccessibilityNodeInfo, reference: String): Boolean {
+        val performer = gesture
+        if (performer == null) {
+            attempts += "全滅(ref=${reference.length}文字/ジェスチャー無効)"
+            return false
+        }
+        val center = NodeFinder.centerOf(node)
+        if (center == null) {
+            attempts += "全滅(bounds無効のため座標タップもしない)"
+            return false
+        }
+        val (x, y) = center
+        val ok = runCatching { performer.tap(x, y) }.getOrDefault(false)
+        // 座標そのものは残さない。位置は端末ごとに違ううえ、追うのに必要なのは可否だけ。
+        attempts += "gesture(bounds中心)=$ok"
+        return ok
     }
 
     /** 直前のクリックで何を試したか。診断表示に使う。 */

@@ -706,3 +706,109 @@ class UnclickableButtonHandoverTest {
         assertEquals(AutomationStatus.USER_ACTION_REQUIRED, session.status)
     }
 }
+
+/**
+ * `ACTION_CLICK` が拒否されるボタンを、座標タップで押す場合（利用者の判断で解禁）。
+ *
+ * 叩くのは**テキストで特定したノードの bounds 中心**だけで、固定座標は使わない。
+ * 「押すかどうか」の判断は一切変えていない。変えたのは「どう押すか」だけ。
+ */
+class GestureFallbackTest {
+
+    private fun amountScreen() = FakeScreen(
+        texts = listOf(
+            "チャージ", "チャージ金額", "1,000", "円",
+            "1,000", "2,000", "3,000", "5,000", "10,000", "****9804でチャージ",
+        ),
+        buttons = mapOf("1,000" to false, "****9804でチャージ" to false),
+    ).apply {
+        // 実機どおり: 金額プリセットは ACTION_CLICK で押せる。支払いボタンだけ拒否される。
+        unclickableLabels = setOf("****9804でチャージ")
+    }
+
+    private fun engine(autoConfirm: Boolean): Pair<AutomationEngine, AutomationSession> {
+        val session = AutomationSession(
+            sessionId = "gesture", attemptId = 1L, startedAt = 0L,
+            chargeAmountYen = 1_000, dryRun = false, autoConfirmPayment = autoConfirm,
+        )
+        return AutomationEngine(
+            session,
+            SafetyGuard(expectedSignature = null, autoConfirmPayment = autoConfirm),
+            actualSignature = null,
+        ) to session
+    }
+
+    @Test
+    fun `ACTION_CLICKが拒否されても座標タップで先へ進む`() {
+        val screen = amountScreen()
+        screen.gestureFallbackWorks = true
+        val (e, session) = engine(autoConfirm = false)
+        var t = 0L
+        repeat(10) {
+            e.tick(screen.snapshot(t), t)
+            t += 400
+        }
+        assertTrue("支払いボタンを押せている", screen.clicks.contains("****9804でチャージ"))
+        assertEquals("座標タップに落ちた", 1, screen.gestureTaps)
+        assertNull("押しただけでは決着させない", session.outcome)
+        assertEquals(AutomationState.PAYMENT_CONFIRM, session.state)
+    }
+
+    @Test
+    fun `座標タップでも確認ダイアログが出るまでは決着しない`() {
+        val screen = amountScreen()
+        screen.gestureFallbackWorks = true
+        val (e, session) = engine(autoConfirm = false)
+        var t = 0L
+        repeat(8) {
+            e.tick(screen.snapshot(t), t)
+            t += 400
+        }
+        assertNull(session.outcome)
+
+        val dialog = FakeScreen(
+            texts = listOf("チャージ確認", "チャージ額：1,000円", "チャージしますか？"),
+            buttons = mapOf("チャージする" to false, "キャンセル" to false),
+        )
+        e.tick(dialog.snapshot(t), t)
+        assertTrue(session.outcome is AutomationSession.Outcome.HandedToUser)
+        assertTrue("自動確定OFFなら確定は押さない", dialog.clicks.isEmpty())
+    }
+
+    @Test
+    fun `座標タップを使えても金額が違えば確定しない`() {
+        // 押し方を変えただけで、押してよいかの判断は据え置き。
+        val (e, session) = engine(autoConfirm = true)
+        val dialog = FakeScreen(
+            texts = listOf("チャージ確認", "チャージ額：9,999円", "チャージしますか？"),
+            buttons = mapOf("チャージする" to false),
+        ).apply {
+            unclickableLabels = setOf("チャージする")
+            gestureFallbackWorks = true
+        }
+        e.tick(dialog.snapshot(0), 0)
+        assertEquals(
+            ErrorReason.AMOUNT_MISMATCH,
+            (session.outcome as AutomationSession.Outcome.Stopped).reason,
+        )
+        assertTrue("座標タップにも到達させない", dialog.clicks.isEmpty())
+        assertEquals(0, dialog.gestureTaps)
+    }
+
+    @Test
+    fun `座標タップを使えても認証画面では必ず止まる`() {
+        val (e, session) = engine(autoConfirm = true)
+        val auth = FakeScreen(
+            texts = listOf("3Dセキュア", "パスワードを入力してください"),
+            buttons = mapOf("送信" to false),
+        ).apply {
+            unclickableLabels = setOf("送信")
+            gestureFallbackWorks = true
+        }
+        e.tick(auth.snapshot(0), 0)
+        assertTrue(session.outcome is AutomationSession.Outcome.HandedToUser)
+        assertEquals(AutomationStatus.USER_ACTION_REQUIRED, session.status)
+        assertTrue(auth.clicks.isEmpty())
+        assertEquals("認証画面では座標タップもしない", 0, auth.gestureTaps)
+    }
+}

@@ -138,6 +138,20 @@ object NodeFinder {
             "$name[$label] click=$clickable action=$action visible=$visible"
         }
 
+    /**
+     * ノードの中心点（画面座標）。押せなかったときの座標タップにのみ使う。
+     *
+     * **固定値ではなくノード由来**なので、レイアウトが変わればここも一緒に動く。
+     * 大きさが無い・画面外にある場合は null を返し、叩かせない。
+     */
+    fun centerOf(node: AccessibilityNodeInfo): Pair<Float, Float>? {
+        val rect = android.graphics.Rect()
+        runCatching { node.getBoundsInScreen(rect) }.getOrElse { return null }
+        if (rect.width() <= 0 || rect.height() <= 0) return null
+        if (rect.left < 0 || rect.top < 0) return null
+        return rect.exactCenterX() to rect.exactCenterY()
+    }
+
     /** テキストを含むノードを探す（画面判定など、押さない用途にのみ使う）。 */
     fun findByTextContains(root: AccessibilityNodeInfo?, needle: String): AccessibilityNodeInfo? =
         walk(root).firstOrNull { visibleText(it)?.contains(needle) == true }

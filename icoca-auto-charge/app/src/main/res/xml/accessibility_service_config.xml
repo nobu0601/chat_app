@@ -4,13 +4,23 @@
 
   ・packageNames を ICOCA アプリだけに限定している。
     これにより、本サービスは他のアプリの画面を一切見ない（指示書 §17/§18 の最小権限）。
-  ・canPerformGestures は宣言しない。座標タップは行わない方針のため（指示書 §10/§26）。
+  ・canPerformGestures を宣言している。
+    当初は「座標タップは行わない」方針だったが、実機の ICOCA では
+    「****9804でチャージ」が isClickable=false の TextView で、祖先も含め
+    ACTION_CLICK を受け付けるノードが1つも無かった（docs/TECHNICAL_FEASIBILITY.md §0.8）。
+    Android は ACTION_CLICK を受けても isClickable() が false なら何もしないため、
+    このボタンだけはユーザー補助の公開 API では押せない。
+    「すべて自動であること」が利用者の必須要件のため、利用者の明示的な判断により
+    座標タップを解禁した。
+    **ただし座標は固定値ではない。** テキストで特定したノードの bounds の中心しか叩かない。
+    レイアウトが変わればタップ位置も一緒に動く（DESIGN.md §8.6.3）。
   ・isAccessibilityTool="false"：本アプリは障がい支援ツールではない（Google Play ポリシー）。
 -->
 <accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
     android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
     android:accessibilityFeedbackType="feedbackGeneric"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagReportViewIds"
+    android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
     android:isAccessibilityTool="false"

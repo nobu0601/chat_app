@@ -356,7 +356,7 @@ Worker と UI が同時に走っても試行が2つ生まれることはない�
 `accessibility_service_config.xml` で監視対象を ICOCA アプリのみに限定している。
 
 - `packageNames="jp.co.westjr.android.icocaapp"` — 他のアプリの画面は一切見ない
-- `canPerformGestures` は宣言しない — 座標タップを行わないため
+- `canPerformGestures` を宣言している — `ACTION_CLICK` が通らないボタン用の最後の手段として、テキストで特定したノードの範囲だけを叩く（§8.6.3）
 - `isAccessibilityTool="false"` — 本アプリは障がい支援ツールではない（Google Play ポリシー）
 
 ### 8.1 画面判定（`ScreenClassifier`）
@@ -496,7 +496,8 @@ ICOCA の強制終了や無条件の再起動・ランダムクリックは一�
 
 ### 8.6.1 ボタンの掴み方（`NodeFinder`）
 
-**座標は一切扱わない。** text / contentDescription / viewIdResourceName だけを見る。
+**探索では座標を一切扱わない。** text / contentDescription / viewIdResourceName だけを見る。
+座標を使うのは、押せなかったときの最後の手段だけ（§8.6.3）。
 
 **見た目のボタンと `AccessibilityNodeInfo` の構造は一致しない。**
 実機で「****9804でチャージ」が見えているのに押されない、ということが起きた。
@@ -585,6 +586,32 @@ ScrollView id=jp.co.westjr.android.icocaapp:...
 画面内に入れ直せば押せたものまで落としていた。押し直せるようにして次の周期に賭ける。
 連打にはならない（`ActionThrottle` のクールダウン 800ms は残る）し、
 無限に粘ることもない（`PAYMENT_READY` の上限20秒で区切る）。
+
+### 8.6.3 それでも押せないとき — 座標タップ
+
+**当初の方針は「座標タップは行わない」だった。実機で成り立たないことが分かり、
+利用者の明示的な判断で解禁した。**
+
+実機の ICOCA では、`ACTION_CLICK` を受け付けるノードが画面上に存在しないボタンがある
+（§13.8）。Android は `isClickable()` が false なら `ACTION_CLICK` を無視するため、
+アクション一覧に CLICK が載っていても押せない。
+「すべて自動であること」が必須要件であり、利用者自身の端末・アプリ・カードに対する
+操作であることから、この1点だけ方針を変えた。
+
+**守っていること。**
+
+| | 内容 |
+|---|---|
+| 固定座標を使わない | 叩くのは `NodeFinder` が**テキストで特定したノード**の bounds 中心だけ。レイアウトが変われば叩く位置も一緒に動く |
+| 最後の手段 | `ACTION_CLICK` を自分・親・祖先・別候補の順に試し、**すべて拒否されたときだけ**落ちてくる |
+| bounds を検証する | 大きさが無い・画面外にあるノードは叩かない |
+| 判断は変えない | 変えたのは「どう押すか」だけ。**「押すかどうか」は一切変えていない** |
+
+最後の行が要点。金額の一致確認、確定ボタンのラベル完全一致、本人認証での停止、
+パッケージと署名の確認は、押し方に関係なく**すべてそのまま効く**。
+金額が違えば座標タップにも到達しないし、認証画面ではそもそもここへ来る前に終わる。
+
+`accessibility_service_config.xml` に `canPerformGestures="true"` が必要。
 
 ### 8.7 金額の選び方
 
@@ -870,7 +897,30 @@ ICOCA アプリ側は中止後も遷移を続けるので、利用者からは
 → イベント依存をやめ、300ms 周期で現在画面を取り直す方式に変更（§8.2）。
 イベントは「変わったかもしれない」という印だけになった。
 
-### 13.7 viewId はほぼ取得できない
+### 13.8 支払いボタンは ACTION_CLICK を受け付けない
+
+実機ログ（2026-09-27）の診断行。
+
+```
+text=****でチャージ  className=android.widget.TextView
+isClickable=false   isEnabled=true
+actions=...,FOCUS,SELECT,8,64,16908342,CLICK
+parent1=ScrollView parent1Clickable=false
+parent2=ScrollView parent2Clickable=false   result=false
+```
+
+**アクション一覧に `CLICK` があるのに `isClickable=false`。**
+Android の `View.performAccessibilityActionInternal` は `ACTION_CLICK` を受けたとき
+`isClickable()` を確認し、false なら何もせず false を返す。
+
+押せるノードは金額プリセットの `Button` 5個・`EditText`・`ImageView`・
+`ImageButton`（上へ移動）だけで、**支払いボタンに対応する押せるノードが存在しない**。
+`refresh()`・`ACTION_SHOW_ON_SCREEN`・祖先を1段ずつ実際に試す、のいずれでも変わらない。
+
+→ ユーザー補助の公開 API ではこのボタンを押せない。
+利用者の明示的な判断で座標タップを解禁した（§8.6.3）。
+
+### 13.9 viewId はほぼ取得できない
 
 ICOCA アプリのノードは `viewIdResourceName` を持たないものが大半。
 したがって照合は text / contentDescription が主軸になる。
