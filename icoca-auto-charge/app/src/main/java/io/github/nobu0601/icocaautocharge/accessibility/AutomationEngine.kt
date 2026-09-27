@@ -107,19 +107,18 @@ class AutomationEngine(
      * ここが通らないなら、そもそも操作してよい相手ではない。
      */
     private fun passesHardGuards(snapshot: ScreenSnapshot, now: Long): Boolean {
-        val verdict = guard.check(
+        // 画面種別ごとの判断は混ぜない。混ぜると認証画面が「停止すべき異常」として
+        // 返ってきてしまい、ユーザーへの引き渡しが失敗扱いになる（改修指示 §15）。
+        val stop = guard.checkEnvironment(
             SafetyGuard.Context(
                 packageName = snapshot.packageName,
                 actualSignature = actualSignature,
                 screen = snapshot.screen,
                 stepCount = session.currentStep,
             ),
-        )
-        if (verdict is SafetyGuard.Verdict.Stop) {
-            fail(verdict.reason, verdict.message, now)
-            return false
-        }
-        return true
+        ) ?: return true
+        fail(stop.reason, stop.message, now)
+        return false
     }
 
     // ------------------------------------------------------------- no ICOCA
@@ -184,6 +183,17 @@ class AutomationEngine(
             return
         }
         val entry = entryStateFor(snapshot.screen) ?: return
+
+        // 前に進む向き（画面のほうが先に行っている）なら、いつでも合わせにいく。
+        // 途中の画面が出ずに飛ばされることは実機でも普通にある。
+        //
+        // 戻る向きはそうはいかない。ボタンを押した直後は、画面がまだ前のままなのが
+        // 当たり前で、ここで引き戻すと「押す → 戻される → また押す」を
+        // 周期ごとに繰り返して連打になる。実際その状態になっていた。
+        // 戻すのは、待ちきれずに Recovery に入ったときだけにする（改修指示 §16）。
+        val goingForward = entry.ordinal > session.state.ordinal
+        if (!goingForward && session.status != AutomationStatus.RECOVERING) return
+
         recorder.log(
             AutomationLogKind.RECOVERY,
             "${session.state} → $entry（画面は ${snapshot.screen}）",

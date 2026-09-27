@@ -34,7 +34,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # 既定では 'tools platform-tools' を入れようとするが、旧 'tools' パッケージは
+      # Android SDK のリポジトリから削除済みで、sdkmanager が
+      # 「Failed to find package 'tools'」で落ちる（＝このリポジトリのコードとは無関係に
+      # ある日から CI が全部赤くなる）。必要なのは platform-tools だけで、
+      # compileSdk に対応する platform と build-tools は AGP が自前で取ってくる。
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - uses: gradle/actions/setup-gradle@v4
 

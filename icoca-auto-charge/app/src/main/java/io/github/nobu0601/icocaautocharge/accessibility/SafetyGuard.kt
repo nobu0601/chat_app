@@ -49,7 +49,43 @@ class SafetyGuard(
         val stepCount: Int,
     )
 
+    /**
+     * **操作してよい相手か**だけを見る（画面の中身は見ない）。
+     *
+     * 画面種別ごとの判断を混ぜると、認証画面が「停止すべき異常」として返ってきてしまう。
+     * 認証は異常ではなく「ユーザーに渡すべき場面」なので、
+     * 失敗として畳むか引き渡すかは [AutomationEngine] が決める（改修指示 §15）。
+     * ここが返すのは、そもそも触ってはいけない相手だったときの停止だけ。
+     *
+     * @return 停止すべきならその理由。問題なければ null。
+     */
+    fun checkEnvironment(ctx: Context): Verdict.Stop? {
+        // 1. 操作対象が本当に ICOCA 公式アプリか
+        if (ctx.packageName != IcocaConstants.PACKAGE_NAME) {
+            return stop(
+                ErrorReason.PACKAGE_MISMATCH,
+                "操作対象がモバイルICOCAアプリではありません（${ctx.packageName}）",
+            )
+        }
+        // 2. 署名が初回検出時と同じか（別アプリへの差し替え検知）
+        if (expectedSignature != null &&
+            ctx.actualSignature != null &&
+            expectedSignature != ctx.actualSignature
+        ) {
+            return stop(
+                ErrorReason.SIGNATURE_MISMATCH,
+                "モバイルICOCAアプリの署名が変わっています。安全のため自動操作を中止しました",
+            )
+        }
+        // 3. ステップ数の上限（無限ループ防止）
+        if (ctx.stepCount > MAX_STEPS) {
+            return stop(ErrorReason.STEP_LIMIT_EXCEEDED, "操作の手数が上限に達したため中止しました")
+        }
+        return null
+    }
+
     fun check(ctx: Context): Verdict {
+        checkEnvironment(ctx)?.let { return it }
         // 1. 操作対象が本当に ICOCA 公式アプリか
         if (ctx.packageName != IcocaConstants.PACKAGE_NAME) {
             return stop(

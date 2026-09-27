@@ -15,7 +15,7 @@
 | §4 | 判定ロジック | [DESIGN §5 チャージ判定](DESIGN.md#5-チャージ判定chargedecisionengine) |
 | §5 | 残高取得チェーン | [DESIGN §6 残高の取得](DESIGN.md#6-残高の取得) |
 | §6 | 残高テキストの解析 | [DESIGN §7](DESIGN.md#7-残高テキストの解析balancetextparser) |
-| §7 | 自動操作の安全設計 | [DESIGN §8.4 安全ガード](DESIGN.md#84-安全ガードsafetyguard) |
+| §7 | 自動操作の安全設計 | [DESIGN §8 自動操作](DESIGN.md#8-自動操作automationengine)（安全ガードは §8.9） |
 | §8 | バックグラウンド起動制限 | [DESIGN §9](DESIGN.md#9-バックグラウンド起動制限への対応) |
 | §9 | データモデル | [DESIGN §10 データモデル](DESIGN.md#10-データモデル) |
 | §10 | セキュリティ | [DESIGN §12 セキュリティとプライバシー](DESIGN.md#12-セキュリティとプライバシー) |

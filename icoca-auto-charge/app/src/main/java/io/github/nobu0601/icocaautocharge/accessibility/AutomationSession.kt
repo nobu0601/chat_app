@@ -36,7 +36,13 @@ class AutomationSession(
     var currentScreen: IcocaScreen = IcocaScreen.UNKNOWN
         private set
 
-    /** 進んだ手数。無限ループ防止の上限判定に使う。 */
+    /**
+     * 進んだ手数。無限ループ防止の上限判定（[SafetyGuard.MAX_STEPS]）に使う。
+     *
+     * **数えるのはクリックであって、状態遷移ではない。**
+     * ポーリングにしたことで状態は細かく動くようになったので、
+     * 遷移を数えると同じ画面を見ているだけで上限に達してしまう。
+     */
     var currentStep: Int = 0
         private set
 
@@ -102,7 +108,6 @@ class AutomationSession(
         if (next == state) return
         state = next
         waitingSince = nowMillis
-        currentStep++
     }
 
     fun setStatus(next: AutomationStatus, nowMillis: Long) {
@@ -129,6 +134,7 @@ class AutomationSession(
     fun onAction(action: AutomationAction, nowMillis: Long) {
         lastAction = action
         lastActionAt = nowMillis
+        currentStep++
     }
 
     fun markAmountSelected() {
