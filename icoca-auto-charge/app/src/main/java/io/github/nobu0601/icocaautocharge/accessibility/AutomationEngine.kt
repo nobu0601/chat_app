@@ -496,8 +496,17 @@ class AutomationEngine(
             now,
         )
         if (!ok) {
-            // 押せないボタンを押し続けても意味がない。UI が変わった可能性が高い。
-            fail(ErrorReason.UI_STRUCTURE_CHANGED, "ボタンを操作できませんでした", now)
+            // **1回の失敗でセッションを畳まない。**
+            //
+            // 実機では、ボタンを見つけられていても performAction が false を返した。
+            // スクロール領域の外にいる、掴んでから押すまでにツリーが作り直された、
+            // といった一時的な理由で false になる。ここで即中止すると、
+            // 画面内に入れ直せば押せたものまで落としてしまう（実際そうなっていた）。
+            //
+            // 押し直せるようにして、次の周期に賭ける。
+            // 無限に粘るわけではなく、状態ごとの timeout が区切る。
+            throttle.onClickFailed(snapshot.screen, target.key, action)
+            session.setStatus(AutomationStatus.WAITING, now)
         }
         return ok
     }

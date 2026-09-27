@@ -107,6 +107,39 @@ ICOCA アプリ側は中止後も遷移を続けるので、利用者からは
 この変更により、実機でしか再現できなかった停止パターンが
 **JVM のテストで再現できる**ようになった（`AutomationEngineTest`、`TEST_PLAN.md` §1.7）。
 
+### 0.7 支払いボタンは Button ではなく ScrollView 内の TextView だった
+
+2026-09-27 の実機ダンプ（24ノード / CHARGE_AMOUNT）。
+
+```
+ScrollView id=jp.co.westjr.android.icocaapp:...
+  ViewGroup
+    TextView  text=****9804でチャージ     ← 見た目のボタンの正体
+    Button    text=10,000  click=true
+    Button    text=5,000   click=true
+  ImageButton desc=上へ移動               ← スクロールする画面である証拠
+```
+
+金額のプリセットは本物の `Button`（`click=true`）だが、
+**支払いボタンだけが `TextView`**。見た目とノード構造は一致しない。
+
+このときの記録:
+
+```
+16:00:59 ACTION CLICK "1,000"
+16:01:00 ACTION [PAYMENT_METHOD_BUTTON_FOUND]
+16:01:00 ACTION [PAYMENT_METHOD_BUTTON_CLICK]
+16:01:00 ACTION CLICK 失敗 "****でチャージ"
+16:01:00 FAILURE UI_STRUCTURE_CHANGED
+```
+
+**探索は成功していた。** 失敗したのは `performAction` で、しかも
+**1回の false でセッションを畳んでいた**ため再試行の機会が無かった。
+
+→ `refresh()` → `ACTION_SHOW_ON_SCREEN` → 自分と祖先を順に実際に試す、に変更。
+クリック失敗はセッション終了ではなく再試行にし、`PAYMENT_READY` の20秒で区切る。
+設計は `DESIGN.md` §8.6.2。
+
 ## 1. 指示書 §28 の 8 項目
 
 | # | 検証項目 | 机上判定（予測） | 実機結果 | 備考 |

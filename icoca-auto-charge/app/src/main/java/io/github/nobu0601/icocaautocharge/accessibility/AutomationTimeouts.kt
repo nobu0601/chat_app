@@ -60,6 +60,9 @@ object AutomationTimeouts {
         AutomationState.WAITING_FOR_AMOUNT to 20_000L,
         AutomationState.SELECTING_AMOUNT to 5_000L,
         AutomationState.WAITING_FOR_PAYMENT_BUTTON to 20_000L,
+        // 押せないボタンを押し続けないための区切り。実機では
+        // performAction が false を返し続けることがある（画面外・古いノード等）。
+        AutomationState.PAYMENT_READY to 20_000L,
         AutomationState.PAYMENT_CONFIRM to 60_000L,
         AutomationState.PROCESSING to 120_000L,
         AutomationState.WAITING_FOR_COMPLETION to 120_000L,

@@ -191,7 +191,9 @@ object NodeFinder {
      * 子孫テキストの長さで見分ける。ボタンのラベルに対して極端に長ければ、
      * それはボタンではなくページのコンテナ。
      */
-    private fun enclosesOnlyTheButton(ancestor: AccessibilityNodeInfo, needle: String): Boolean {
+    fun enclosesOnlyTheButton(ancestor: AccessibilityNodeInfo, reference: String): Boolean {
+        val needle = TextNormalizer.normalize(reference)
+        if (needle.isEmpty()) return false
         val subtree = TextNormalizer.normalize(aggregatedText(ancestor))
         if (!subtree.contains(needle)) return false
         return subtree.length <= needle.length * ANCESTOR_TEXT_RATIO + ANCESTOR_TEXT_SLACK

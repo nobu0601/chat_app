@@ -14,7 +14,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
 
     /** [find] が返した [ClickTarget] から実ノードに戻るための対応表。 */
-    private val resolved = HashMap<String, AccessibilityNodeInfo>()
+    private val resolved = HashMap<String, NodeFinder.Match>()
 
     override fun find(spec: NodeSpec): ClickTarget? = when (spec) {
         is NodeSpec.ExactText -> {
@@ -33,7 +33,7 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
         val node = match.node
         val label = NodeFinder.visibleText(node) ?: match.matchedText.takeIf { it.isNotEmpty() }
         val key = keyOf(node, label)
-        resolved[key] = node
+        resolved[key] = match
         return ClickTarget(
             key = key,
             label = label,
@@ -47,11 +47,66 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
 
     override fun clickableLabels(): List<String> = NodeFinder.clickableLabels(root)
 
+    /**
+     * 押す。
+     *
+     * 実機では「ボタンは見つかったのに `performAction` が false」で止まった。
+     * ダンプを見ると、見た目のボタンの正体は `ScrollView` の中の `TextView` だった。
+     * `isClickable` や action list は**当てにならない**ので、
+     * 旗を見て諦めるのではなく、順に**実際に試す**。
+     *
+     * 1. ノードを最新化する。掴んでから押すまでにツリーが作り直されていると、
+     *    古いノードへの `performAction` は何もせず false を返す
+     * 2. 画面外にいるなら画面内へ入れる。スクロール領域の外にあるノードは押せない
+     * 3. 自分 → 親 → さらに上の順に、実際に `performAction` を試す。
+     *    ただし無関係なコンテナまで上がらないよう、範囲の判定は [NodeFinder] に委ねる
+     *
+     * @return 押せたかどうか。**true でも「チャージ操作が成功した」ではない。**
+     */
     override fun click(target: ClickTarget): Boolean {
-        val node = resolved[target.key] ?: return false
-        return runCatching { node.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
-            .getOrDefault(false)
+        val match = resolved[target.key] ?: return false
+        val node = match.node
+
+        // 1) 掴んでから時間が経っている。古いノードを押しても何も起きない。
+        runCatching { node.refresh() }
+
+        // 2) 画面外なら見えるところへ持ってくる。
+        if (!isOnScreen(node)) {
+            attempts += "offscreen→SHOW_ON_SCREEN"
+            runCatching {
+                node.performAction(
+                    AccessibilityNodeInfo.AccessibilityAction.ACTION_SHOW_ON_SCREEN.id,
+                )
+            }
+            runCatching { node.refresh() }
+        }
+
+        // 3) 旗ではなく実際の結果で判断する。
+        val reference = match.matchedText.ifEmpty { target.label.orEmpty() }
+        var current: AccessibilityNodeInfo? = node
+        var hops = 0
+        while (current != null && hops <= MAX_CLICK_HOPS) {
+            val here = current
+            if (hops > 0 && !NodeFinder.enclosesOnlyTheButton(here, reference)) {
+                // ここから上はボタンではなく画面のコンテナ。押すと別の場所を叩く。
+                attempts += "depth$hops:範囲外で打ち切り"
+                break
+            }
+            val ok = runCatching { here.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+                .getOrDefault(false)
+            attempts += "depth$hops:${here.className?.toString()?.substringAfterLast('.')}=$ok"
+            if (ok) return true
+            current = runCatching { here.parent }.getOrNull()
+            hops++
+        }
+        return false
     }
+
+    /** 直前のクリックで何を試したか。診断表示に使う。 */
+    val attempts = mutableListOf<String>()
+
+    private fun isOnScreen(node: AccessibilityNodeInfo): Boolean =
+        runCatching { node.isVisibleToUser }.getOrDefault(true)
 
     /**
      * 同じボタンなら毎回同じになる識別子。
@@ -64,5 +119,10 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
         node.viewIdResourceName?.takeIf { it.isNotEmpty() }?.let { return "id:$it" }
         if (!label.isNullOrEmpty()) return "text:$label"
         return "class:${node.className}"
+    }
+
+    private companion object {
+        /** クリックを試しながら遡る上限。探索側の上限と揃える。 */
+        const val MAX_CLICK_HOPS = 8
     }
 }

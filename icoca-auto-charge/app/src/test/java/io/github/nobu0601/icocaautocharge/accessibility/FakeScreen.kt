@@ -25,6 +25,12 @@ class FakeScreen(
     /** クリックを失敗させたいとき。 */
     var clickSucceeds: Boolean = true
 
+    /** この回数だけ失敗してから成功する。実機の「画面外で押せない → 入れ直せば押せる」の再現。 */
+    var failFirstClicks: Int = 0
+
+    /** 失敗も含めた試行回数。 */
+    var clickAttempts: Int = 0
+
     val screen: IcocaScreen get() = forcedScreen ?: ScreenClassifier.classify(texts)
 
     fun snapshot(now: Long) = ScreenSnapshot(
@@ -75,7 +81,12 @@ class FakeScreen(
     override fun clickableLabels(): List<String> = buttons.keys.toList()
 
     override fun click(target: ClickTarget): Boolean {
+        clickAttempts++
         if (!clickSucceeds) return false
+        if (failFirstClicks > 0) {
+            failFirstClicks--
+            return false
+        }
         clicks += target.label ?: target.key
         return true
     }

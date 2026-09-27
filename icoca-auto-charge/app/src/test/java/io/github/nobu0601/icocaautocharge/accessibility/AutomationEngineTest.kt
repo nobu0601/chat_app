@@ -563,3 +563,92 @@ class PaymentButtonMatchingTest {
         assertTrue("確定は押さない", dialog.clicks.isEmpty())
     }
 }
+
+/**
+ * クリックが `performAction=false` を返したときのふるまい。
+ *
+ * 実機ではボタンを見つけたうえで false が返り、そこで即セッションを畳んでいた。
+ * 画面外にいる・掴んでから押すまでにツリーが作り直された、といった一時的な理由でも
+ * false になるので、1回で諦めてはいけない。
+ */
+class FailedClickRetryTest {
+
+    private fun screen(buttonLabel: String = "****9804でチャージ") = FakeScreen(
+        texts = listOf(
+            "チャージ", "チャージ金額", "1,000", "円",
+            "1,000", "2,000", "3,000", "5,000", "10,000", buttonLabel,
+        ),
+        buttons = mapOf("1,000" to false, buttonLabel to false),
+    )
+
+    private fun engine(screen: FakeScreen): Pair<AutomationEngine, RecordingRecorder> {
+        val session = AutomationSession(
+            sessionId = "retry", attemptId = 1L, startedAt = 0L,
+            chargeAmountYen = 1_000, dryRun = false, autoConfirmPayment = false,
+        )
+        val rec = RecordingRecorder()
+        return AutomationEngine(
+            session,
+            SafetyGuard(expectedSignature = null, autoConfirmPayment = false),
+            actualSignature = null,
+            recorder = rec,
+        ) to rec
+    }
+
+    @Test
+    fun `一度押せなくてもセッションを畳まない`() {
+        val s = screen()
+        s.failFirstClicks = 3
+        val (e, _) = engine(s)
+        var t = 0L
+        repeat(6) {
+            e.tick(s.snapshot(t), t)
+            t += 300
+        }
+        assertNull("1回の失敗で終わらせない", e.session.outcome)
+    }
+
+    @Test
+    fun `押し直して成功すれば先へ進む`() {
+        // 最初の金額ボタンで1回、支払いボタンで1回だけ失敗させる。
+        val s = screen()
+        s.failFirstClicks = 1
+        val (e, _) = engine(s)
+        var t = 0L
+        repeat(20) {
+            e.tick(s.snapshot(t), t)
+            t += 400 // クールダウン 800ms をまたぐ間隔で回す
+        }
+        assertNull(e.session.outcome)
+        assertTrue("押し直して支払いボタンまで到達する", s.clicks.contains("****9804でチャージ"))
+    }
+
+    @Test
+    fun `押せないまま時間切れになれば安全に止まる`() {
+        // ずっと押せない。無限に粘らず、状態ごとの timeout で畳むこと。
+        val s = screen()
+        s.clickSucceeds = false
+        val (e, _) = engine(s)
+        var t = 0L
+        while (t < 60_000 && e.session.outcome == null) {
+            e.tick(s.snapshot(t), t)
+            t += 400
+        }
+        val outcome = e.session.outcome
+        assertTrue("最終的には止まる", outcome is AutomationSession.Outcome.Stopped)
+    }
+
+    @Test
+    fun `押せない間も連打はしない`() {
+        val s = screen()
+        s.clickSucceeds = false
+        val (e, _) = engine(s)
+        var t = 0L
+        // 3秒ぶん＝10周期。クールダウン 800ms があるので、試行は4回程度までのはず。
+        repeat(10) {
+            e.tick(s.snapshot(t), t)
+            t += 300
+        }
+        assertTrue("試行が周期ごとになっていない（${s.clickAttempts}回）", s.clickAttempts <= 5)
+    }
+}

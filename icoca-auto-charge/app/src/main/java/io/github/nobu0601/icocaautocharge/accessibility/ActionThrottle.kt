@@ -58,6 +58,18 @@ class ActionThrottle(private val cooldownMillis: Long = COOLDOWN_MILLIS) {
         clickedInCurrentStep.clear()
     }
 
+    /**
+     * 押したが `performAction` が false だった。
+     *
+     * 「このステップでは押し済み」の印だけ外し、もう一度試せるようにする。
+     * クールダウンは残すので、連打にはならない（最短 [COOLDOWN_MILLIS] 間隔）。
+     * 実機では、画面外にあるノードやツリー作り直し直後のノードで false が返る。
+     * 1回の false で諦めると、スクロールやツリー更新を挟めば押せたものまで落とす。
+     */
+    fun onClickFailed(screen: IcocaScreen, nodeKey: String, action: AutomationAction) {
+        clickedInCurrentStep.remove(Key(screen, nodeKey, action))
+    }
+
     companion object {
         /** 同じボタンを押し直すまでの最短間隔。 */
         const val COOLDOWN_MILLIS = 800L
