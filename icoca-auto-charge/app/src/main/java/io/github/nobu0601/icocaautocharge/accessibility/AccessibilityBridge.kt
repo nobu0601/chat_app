@@ -11,6 +11,9 @@ import java.lang.ref.WeakReference
  *
  * サービスはシステムが生成・破棄するため直接 new できない。
  * ここに弱参照を置き、生存しているときだけ操作を依頼する。
+ *
+ * 自動操作の記録（画面履歴・操作ログ・進行状況）もここに集める。
+ * **いずれもメモリ上にのみ保持し、永続化しない**（指示書 §17）。
  */
 object AccessibilityBridge {
 
@@ -25,23 +28,25 @@ object AccessibilityBridge {
     private val _lastBalance = MutableStateFlow<BalanceReading?>(null)
     val lastBalance: StateFlow<BalanceReading?> = _lastBalance.asStateFlow()
 
-    /** Debug 画面用の直近ダンプ。**メモリ上にのみ保持し、永続化しない**（指示書 §17）。 */
+    /** Debug 画面用の直近ダンプ。 */
     private val _lastDump = MutableStateFlow<ScreenDump?>(null)
     val lastDump: StateFlow<ScreenDump?> = _lastDump.asStateFlow()
 
-    /**
-     * 自動操作が何を見て何をしたかの記録（Debug 画面用）。
-     *
-     * 実機で「どこかで止まる」が起きたとき、logcat を取れない環境では
-     * 原因がまったく分からなかった。止まった瞬間の判断をここに残しておけば、
-     * Debug 画面のスクリーンショット1枚で追える。
-     *
-     * **メモリ上にのみ保持し、永続化しない**（指示書 §17）。
-     * 書き込む側は必ず [io.github.nobu0601.icocaautocharge.core.LogRedactor] を
-     * 通してから渡すこと。ボタンのラベルにはカード番号が入りうる（指示書 §24）。
-     */
-    private val _trace = MutableStateFlow<List<String>>(emptyList())
-    val trace: StateFlow<List<String>> = _trace.asStateFlow()
+    /** ICOCA が前面にいるか。Debug 画面の表示用（改修指示 §19）。 */
+    private val _icocaForeground = MutableStateFlow(false)
+    val icocaForeground: StateFlow<Boolean> = _icocaForeground.asStateFlow()
+
+    /** 自動操作のいまの姿。セッションが無ければ null（改修指示 §19）。 */
+    private val _automation = MutableStateFlow<AutomationStatusView?>(null)
+    val automation: StateFlow<AutomationStatusView?> = _automation.asStateFlow()
+
+    /** 直近 [MAX_SNAPSHOTS] 件の画面履歴。新しいものが先頭（改修指示 §18）。 */
+    private val _snapshots = MutableStateFlow<List<SnapshotRecord>>(emptyList())
+    val snapshots: StateFlow<List<SnapshotRecord>> = _snapshots.asStateFlow()
+
+    /** 操作ログ。新しいものが末尾（改修指示 §20）。 */
+    private val _log = MutableStateFlow<List<AutomationLogEntry>>(emptyList())
+    val log: StateFlow<List<AutomationLogEntry>> = _log.asStateFlow()
 
     /** Debug 設定。ドライラン中はクリックを実行せず、押す予定だけを記録する。 */
     @Volatile var dryRun: Boolean = false
@@ -57,6 +62,7 @@ object AccessibilityBridge {
         serviceRef = null
         _connected.value = false
         _lastScreen.value = IcocaScreen.UNKNOWN
+        _icocaForeground.value = false
     }
 
     internal fun publishScreen(screen: IcocaScreen) {
@@ -71,17 +77,27 @@ object AccessibilityBridge {
         _lastDump.value = dump
     }
 
-    /** 自動操作の判断を1行残す。渡す前に必ず秘匿処理を済ませておくこと。 */
-    internal fun trace(line: String) {
-        _trace.value = (_trace.value + line).takeLast(MAX_TRACE_LINES)
+    internal fun publishForeground(foreground: Boolean) {
+        _icocaForeground.value = foreground
     }
 
-    fun clearTrace() {
-        _trace.value = emptyList()
+    internal fun publishAutomation(view: AutomationStatusView?) {
+        _automation.value = view
     }
 
-    /** 記録しておく行数。古いものから捨てる。 */
-    private const val MAX_TRACE_LINES = 40
+    internal fun addSnapshot(record: SnapshotRecord) {
+        _snapshots.value = (listOf(record) + _snapshots.value).take(MAX_SNAPSHOTS)
+    }
+
+    internal fun addLog(entry: AutomationLogEntry) {
+        _log.value = (_log.value + entry).takeLast(MAX_LOG_LINES)
+    }
+
+    /** 新しいセッションを始める。1回のフローだけを見たいので前回の記録は捨てる。 */
+    internal fun resetRecords() {
+        _snapshots.value = emptyList()
+        _log.value = emptyList()
+    }
 
     fun service(): IcocaAccessibilityService? = serviceRef?.get()
 
@@ -89,6 +105,62 @@ object AccessibilityBridge {
 
     fun clearDump() {
         _lastDump.value = null
+    }
+
+    /** 直近50件の画面履歴（改修指示 §18）。 */
+    const val MAX_SNAPSHOTS = 50
+
+    /** 操作ログの保持行数。 */
+    const val MAX_LOG_LINES = 200
+}
+
+/**
+ * Debug 画面に出す自動操作の現況（改修指示 §19）。
+ *
+ * 可変の [AutomationSession] をそのまま UI に渡すと、
+ * Compose が再構成のたびに違う値を見ることになる。読み取り専用の写しを配る。
+ */
+data class AutomationStatusView(
+    val sessionId: String,
+    val attemptId: Long,
+    val status: AutomationStatus,
+    val state: AutomationState,
+    val screen: IcocaScreen,
+    val currentStep: Int,
+    val lastAction: AutomationAction?,
+    val lastActionAt: Long,
+    val lastScreenChangeAt: Long,
+    val unknownSince: Long?,
+    val unknownDurationMillis: Long,
+    val consecutiveUnknown: Int,
+    /** いまの状態に許された時間。上限が無い状態なら null。 */
+    val currentTimeoutMillis: Long?,
+    /** いまの状態にとどまっている時間。 */
+    val millisInState: Long,
+    val elapsedMillis: Long,
+    val dryRun: Boolean,
+    val autoConfirmPayment: Boolean,
+) {
+    companion object {
+        fun of(session: AutomationSession, now: Long) = AutomationStatusView(
+            sessionId = session.sessionId,
+            attemptId = session.attemptId,
+            status = session.status,
+            state = session.state,
+            screen = session.currentScreen,
+            currentStep = session.currentStep,
+            lastAction = session.lastAction,
+            lastActionAt = session.lastActionAt,
+            lastScreenChangeAt = session.lastScreenChangeAt,
+            unknownSince = session.unknownSince,
+            unknownDurationMillis = session.unknownDurationMillis(now),
+            consecutiveUnknown = session.consecutiveUnknown,
+            currentTimeoutMillis = AutomationTimeouts.forState(session.state),
+            millisInState = session.millisInState(now),
+            elapsedMillis = session.millisSinceStart(now),
+            dryRun = session.dryRun,
+            autoConfirmPayment = session.autoConfirmPayment,
+        )
     }
 }
 

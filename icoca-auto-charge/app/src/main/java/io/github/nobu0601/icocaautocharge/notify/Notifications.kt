@@ -116,6 +116,22 @@ class Notifications(private val context: Context) {
         post(ID_CHARGE_READY, n)
     }
 
+    /**
+     * ユーザーにしかできない操作に到達した（改修指示 §15）。
+     *
+     * **失敗通知ではない。** 本人認証や決済の確認は、そもそも自動化しないと決めている。
+     * ここまで自動で運んだうえで「あとはご自身で」と伝えるための通知。
+     */
+    fun showUserActionRequired(message: String) {
+        val n = baseBuilder(CHANNEL_CHARGE_READY)
+            .setContentTitle(context.getString(R.string.notif_user_action_title))
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        post(ID_CHARGE_READY, n)
+    }
+
     fun showSuccess(beforeYen: Int?, afterYen: Int?, chargedYen: Int) {
         val body = if (beforeYen != null && afterYen != null) {
             context.getString(

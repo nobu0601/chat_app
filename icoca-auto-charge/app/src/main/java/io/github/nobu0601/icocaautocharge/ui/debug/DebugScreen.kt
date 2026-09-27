@@ -25,7 +25,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.nobu0601.icocaautocharge.BuildConfig
 import io.github.nobu0601.icocaautocharge.R
+import io.github.nobu0601.icocaautocharge.accessibility.AccessibilityBridge
+import io.github.nobu0601.icocaautocharge.accessibility.AutomationLogEntry
+import io.github.nobu0601.icocaautocharge.accessibility.AutomationStatusView
 import io.github.nobu0601.icocaautocharge.accessibility.ScreenDump
+import io.github.nobu0601.icocaautocharge.accessibility.SnapshotRecord
 import io.github.nobu0601.icocaautocharge.core.Money
 import io.github.nobu0601.icocaautocharge.ui.UiState
 import io.github.nobu0601.icocaautocharge.ui.common.LabeledValue
@@ -44,7 +48,11 @@ fun DebugScreen(
     state: UiState,
     workState: String,
     dump: ScreenDump?,
-    trace: List<String>,
+    automation: AutomationStatusView?,
+    snapshots: List<SnapshotRecord>,
+    automationLog: List<AutomationLogEntry>,
+    icocaForeground: Boolean,
+    accessibilityConnected: Boolean,
     probeReport: String?,
     dumpEnabled: Boolean,
     dryRun: Boolean,
@@ -134,14 +142,63 @@ fun DebugScreen(
             }
         }
 
-        // 自動操作が途中で止まったとき、logcat を取れない環境ではここだけが手がかりになる。
-        // ダンプのトグルとは無関係に、チャージ処理が走れば必ず溜まる。
-        SectionCard(stringResource(R.string.dbg_trace)) {
-            if (trace.isEmpty()) {
-                Text("まだ記録がありません。チャージ処理を1回動かすとここに残ります。")
+        // 自動操作が止まったとき、logcat を取れない端末ではここだけが手がかりになる。
+        // ダンプのトグルとは無関係に、チャージ処理が走れば必ず溜まる（改修指示 §19）。
+        SectionCard(stringResource(R.string.dbg_automation)) {
+            if (automation == null) {
+                Text("自動操作は動いていません。チャージ処理を1回動かすとここに出ます。")
+            } else {
+                LabeledValue("Session ID", automation.sessionId)
+                LabeledValue("Attempt ID", automation.attemptId.toString())
+                LabeledValue("Status", automation.status.name)
+                LabeledValue("State", automation.state.name)
+                LabeledValue("Screen", automation.screen.name)
+                LabeledValue("Step", automation.currentStep.toString())
+                LabeledValue("Last Action", automation.lastAction?.name ?: "—")
+                LabeledValue("Last Action Time", formatTimeFull(automation.lastActionAt.orNull()))
+                LabeledValue("Last Screen Change", formatTimeFull(automation.lastScreenChangeAt))
+                LabeledValue("Unknown Since", formatTimeFull(automation.unknownSince))
+                LabeledValue("Unknown Duration", formatSeconds(automation.unknownDurationMillis))
+                LabeledValue("Unknown 連続", automation.consecutiveUnknown.toString())
+                LabeledValue(
+                    "Current Timeout",
+                    automation.currentTimeoutMillis?.let { formatSeconds(it) } ?: "上限なし",
+                )
+                LabeledValue("この状態での経過", formatSeconds(automation.millisInState))
+                LabeledValue("Elapsed", formatSeconds(automation.elapsedMillis))
+            }
+            LabeledValue("ICOCA Foreground", if (icocaForeground) "はい" else "いいえ")
+            LabeledValue("Accessibility Connected", if (accessibilityConnected) "はい" else "いいえ")
+        }
+
+        // 何をどの順で見て、どう動いたか（改修指示 §20）。
+        SectionCard(stringResource(R.string.dbg_automation_log)) {
+            if (automationLog.isEmpty()) {
+                Text("まだ記録がありません。")
             } else {
                 Text(
-                    trace.joinToString("\n") { "· $it" },
+                    automationLog.joinToString("\n") { e ->
+                        "${formatClock(e.timestamp)} ${e.kind.name} ${e.detail}"
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                )
+            }
+        }
+
+        // 直近1画面だけでは「どう遷移して詰まったか」が分からない（改修指示 §18）。
+        SectionCard(stringResource(R.string.dbg_snapshots)) {
+            if (snapshots.isEmpty()) {
+                Text("まだ履歴がありません。")
+            } else {
+                LabeledValue("件数", "${snapshots.size} / ${AccessibilityBridge.MAX_SNAPSHOTS}")
+                Text(
+                    snapshots.joinToString("\n") { r ->
+                        "${formatClock(r.timestamp)} ${r.screenType.name} " +
+                            "state=${r.currentState.name} step=${r.currentStep} " +
+                            "nodes=${r.nodeCount} act=${r.lastAction?.name ?: "-"} " +
+                            "| ${r.importantTexts.joinToString(" / ")}"
+                    },
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                 )
@@ -218,3 +275,16 @@ private fun SimulateBalanceRow(onSubmit: (Int) -> Unit) {
         ) { Text(stringResource(R.string.common_ok)) }
     }
 }
+
+/** 0 を「未発生」として扱う。時刻 0 を 1970 年として表示しても意味がない。 */
+private fun Long.orNull(): Long? = if (this == 0L) null else this
+
+private fun formatSeconds(millis: Long): String =
+    if (millis < 1_000) "${millis}ms" else String.format("%.1f秒", millis / 1000.0)
+
+/** 操作ログ用の時刻。日付は要らないので時分秒だけ。 */
+private fun formatClock(epochMillis: Long): String =
+    java.time.Instant.ofEpochMilli(epochMillis)
+        .atZone(java.time.ZoneId.systemDefault())
+        .toLocalTime()
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))

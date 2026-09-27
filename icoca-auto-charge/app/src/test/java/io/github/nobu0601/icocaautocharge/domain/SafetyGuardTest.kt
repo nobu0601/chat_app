@@ -18,9 +18,7 @@ class SafetyGuardTest {
         signature: String? = "AA:BB",
         screen: IcocaScreen = IcocaScreen.CHARGE_AMOUNT,
         steps: Int = 1,
-        sinceProgress: Long = 0,
-        unknownStreak: Int = 0,
-    ) = SafetyGuard.Context(pkg, signature, screen, steps, sinceProgress, unknownStreak)
+    ) = SafetyGuard.Context(pkg, signature, screen, steps)
 
     @Test
     fun `対象アプリが違えば停止する`() {
@@ -41,9 +39,13 @@ class SafetyGuardTest {
     }
 
     @Test
-    fun `画面が進まなければ停止する`() {
-        val v = guard.check(ctx(sinceProgress = SafetyGuard.STALL_TIMEOUT_MILLIS + 1))
-        assertEquals(ErrorReason.UI_STRUCTURE_CHANGED, (v as SafetyGuard.Verdict.Stop).reason)
+    fun `画面が進まないことだけでは停止しない`() {
+        // 以前は「同じ画面のまま15秒」で止めていたが、画面が変わらないこと自体は
+        // 異常ではない（決済確認は人が読む画面だし、通信待ちも動かない）。
+        // 待ちの上限は AutomationTimeouts が状態ごとに持つ（改修指示 §8, §9）。
+        // このクラスはもう時間を見ない。
+        val v = guard.check(ctx(screen = IcocaScreen.CHARGE_AMOUNT))
+        assertEquals(SafetyGuard.Verdict.Proceed, v)
     }
 
     @Test
@@ -81,33 +83,13 @@ class SafetyGuardTest {
     }
 
     @Test
-    fun `想定外の画面では何も押さない`() {
-        // 判別できない画面で「押さない」ことがここの本題。
-        // 中止するか待つかは別問題で、Proceed にだけは絶対にならない。
+    fun `想定外の画面では押さないが中止もしない`() {
+        // ここの本題は「押さない」こと。
+        // どれだけ待つかは時計を持つ AutomationEngine の担当で、
+        // このクラスは時間も回数も数えない（改修指示 §7, §8）。
         val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
-        for (streak in 0..SafetyGuard.MAX_UNKNOWN_STREAK + 2) {
-            val v = autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = streak))
-            assertTrue("streak=$streak", v !is SafetyGuard.Verdict.Proceed)
-        }
-    }
-
-    @Test
-    fun `想定外の画面が一瞬挟まっただけでは中止しない`() {
-        // 実機では「チャージ」を押した直後、まだ中身の無い画面が1枚挟まる。
-        // これで中止していたため、チャージ画面に着く前に毎回セッションが死んでいた。
-        val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
-        val v = autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = 1))
+        val v = autoGuard.check(ctx(screen = IcocaScreen.UNKNOWN))
         assertEquals(SafetyGuard.Verdict.Wait, v)
-    }
-
-    @Test
-    fun `想定外の画面が続いたら中止する`() {
-        // 遷移の途中ではなく、本当に知らない画面に居座っている場合。
-        val autoGuard = SafetyGuard(expectedSignature = "AA:BB", autoConfirmPayment = true)
-        val v = autoGuard.check(
-            ctx(screen = IcocaScreen.UNKNOWN, unknownStreak = SafetyGuard.MAX_UNKNOWN_STREAK + 1),
-        )
-        assertEquals(ErrorReason.UNEXPECTED_SCREEN, (v as SafetyGuard.Verdict.Stop).reason)
     }
 
     @Test

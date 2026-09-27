@@ -37,6 +37,7 @@
     <string name="notif_success_body">%1$s → %2$s（+%3$s）</string>
     <string name="notif_success_unverified_body">チャージ操作は完了しましたが、残高の再取得ができませんでした。ICOCAアプリでご確認ください。</string>
 
+    <string name="notif_user_action_title">ICOCAアプリでの操作が必要です</string>
     <string name="notif_error_title">ICOCAチャージを完了できませんでした</string>
     <string name="notif_flow_title">ICOCAチャージを実行中です</string>
     <string name="notif_flow_body">安全のため、決済の確認と本人認証はご自身で行ってください。</string>
@@ -131,7 +132,9 @@
     <string name="dbg_app_version">アプリバージョン</string>
     <string name="dbg_probe">exported コンポーネントを列挙</string>
     <string name="dbg_dump">最後にダンプした画面</string>
-    <string name="dbg_trace">自動操作の記録</string>
+    <string name="dbg_automation">自動操作の状態</string>
+    <string name="dbg_automation_log">自動操作の記録</string>
+    <string name="dbg_snapshots">画面履歴（直近50件）</string>
     <string name="dbg_dump_toggle">画面ダンプを記録</string>
     <string name="dbg_dry_run">自動操作ドライラン</string>
     <string name="dbg_nfc_read">NFC残高読み取り（物理カード）</string>

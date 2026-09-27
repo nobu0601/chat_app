@@ -169,6 +169,7 @@ class ChargeFlowCoordinator(
 
         // ICOCA を開く前にセッションを張る。開いてからでは最初の画面遷移を取りこぼす。
         service.beginSession(
+            attemptId = pending.attempt.historyId,
             chargeAmountYen = settings.chargeAmountYen,
             dryRun = AccessibilityBridge.dryRun,
             autoConfirmPayment = settings.autoConfirmPayment,
@@ -270,6 +271,7 @@ class ChargeFlowCoordinator(
         // 起動後に張ると最初の画面遷移を取りこぼす。
         if (useAutomation) {
             AccessibilityBridge.service()?.beginSession(
+                attemptId = attempt.historyId,
                 chargeAmountYen = settings.chargeAmountYen,
                 dryRun = AccessibilityBridge.dryRun,
                 autoConfirmPayment = settings.autoConfirmPayment,
@@ -305,6 +307,14 @@ class ChargeFlowCoordinator(
      */
     suspend fun superviseAndVerify(automation: Boolean) {
         val outcome = if (automation) waitForAutomation() else null
+
+        // 本人認証や決済確認に着いた。**失敗ではない。**
+        // ユーザーが自分で終わらせるはずなので、通常どおり残高の確認へ進む。
+        // ここを失敗扱いにすると、実際にはチャージ済みなのに履歴が赤くなる。
+        if (outcome is AutomationSession.Outcome.HandedToUser) {
+            notifications.showUserActionRequired(outcome.message)
+        }
+
         if (outcome is AutomationSession.Outcome.Stopped) {
             mutex.withLock {
                 val now = time.nowMillis()

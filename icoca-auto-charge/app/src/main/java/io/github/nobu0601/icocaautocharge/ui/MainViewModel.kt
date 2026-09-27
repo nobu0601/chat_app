@@ -5,7 +5,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.nobu0601.icocaautocharge.ServiceLocator
 import io.github.nobu0601.icocaautocharge.accessibility.AccessibilityBridge
+import io.github.nobu0601.icocaautocharge.accessibility.AutomationLogEntry
+import io.github.nobu0601.icocaautocharge.accessibility.AutomationStatusView
 import io.github.nobu0601.icocaautocharge.accessibility.ScreenDump
+import io.github.nobu0601.icocaautocharge.accessibility.SnapshotRecord
 import io.github.nobu0601.icocaautocharge.balance.SecureElementProbe
 import io.github.nobu0601.icocaautocharge.core.SecureLog
 import io.github.nobu0601.icocaautocharge.data.db.ChargeHistoryEntity
@@ -105,8 +108,17 @@ class MainViewModel(private val locator: ServiceLocator) : ViewModel() {
     private val _dump: StateFlow<ScreenDump?> = AccessibilityBridge.lastDump
     val dump: StateFlow<ScreenDump?> get() = _dump
 
-    /** 自動操作が何を見て何をしたか。実機で止まった原因を追うために出す。 */
-    val trace: StateFlow<List<String>> get() = AccessibilityBridge.trace
+    /** 自動操作のいまの姿（改修指示 §19）。セッションが無ければ null。 */
+    val automation: StateFlow<AutomationStatusView?> get() = AccessibilityBridge.automation
+
+    /** 直近50件の画面履歴（改修指示 §18）。 */
+    val snapshots: StateFlow<List<SnapshotRecord>> get() = AccessibilityBridge.snapshots
+
+    /** 操作ログ（改修指示 §20）。 */
+    val automationLog: StateFlow<List<AutomationLogEntry>> get() = AccessibilityBridge.log
+
+    /** ICOCA が前面にいるか（改修指示 §19）。 */
+    val icocaForeground: StateFlow<Boolean> get() = AccessibilityBridge.icocaForeground
 
     private val _probeReport = MutableStateFlow<String?>(null)
     val probeReport: StateFlow<String?> = _probeReport.asStateFlow()

@@ -11,26 +11,55 @@ import io.github.nobu0601.icocaautocharge.core.LogRedactor
 import io.github.nobu0601.icocaautocharge.core.SecureLog
 import io.github.nobu0601.icocaautocharge.domain.BalanceReading
 import io.github.nobu0601.icocaautocharge.domain.BalanceSourceType
-import io.github.nobu0601.icocaautocharge.domain.ErrorReason
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * モバイルICOCA アプリの画面を読み、必要に応じてチャージ画面まで遷移を補助するサービス。
+ * モバイルICOCA アプリの画面を読み、必要に応じてチャージ操作を補助するサービス。
  *
- * ### 何をするか
- * - ICOCA アプリの画面から残高テキストを読む
- * - ユーザーが「チャージ」を選んだときだけ、チャージ画面までの遷移と金額選択を補助する
+ * ### このクラスの役割は薄い（改修指示 §1, §5）
+ *
+ * 以前はここが全部やっていた。イベントを受けて、画面を分類して、安全性を判定して、
+ * クリックまでコールバックの中で完結させていた。**それが止まる原因だった。**
+ * イベントが1回来なければ、その先は永久に進まない。
+ *
+ * いまは3つしかしない。
+ *
+ *  1. 画面を読んで [ScreenSnapshot] にする（残高の抽出もここ）
+ *  2. [AutomationEngine] を 300ms 周期で叩く
+ *  3. イベントが来たら「画面が変わったかもしれない」と印を付けるだけ
+ *
+ * 判断は全部 [AutomationEngine] にある。
  *
  * ### 何をしないか（指示書 §2, §9, §11）
- * - 決済の実行。決済確認画面に着いたらユーザーに引き渡して終わる
- * - 認証（3Dセキュア・生体・パスワード）の自動入力。検知したら即停止する
+ * - 認証（3Dセキュア・生体・パスワード）の自動入力。検知したら即ユーザーへ引き渡す
  * - 座標指定のタップ。text / contentDescription / viewId でしかノードを掴まない
- * - ICOCA アプリ以外の監視。`accessibility_service_config.xml` の packageNames で
- *   ICOCA アプリだけに限定している
- * - 読み取った内容の永続化・送信。残高の抽出と画面判定にのみ使う
+ * - ICOCA アプリ以外の監視。`accessibility_service_config.xml` の packageNames で限定
+ * - 読み取った内容の永続化・送信
  */
 class IcocaAccessibilityService : AccessibilityService() {
 
-    private var session: AutomationSession? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var loop: Job? = null
+
+    private var engine: AutomationEngine? = null
+
+    /**
+     * 直近のイベントで画面が変わったかもしれない、という印（改修指示 §5）。
+     *
+     * **これがイベントの唯一の役目。** 使わなくてもポーリングで進むので、
+     * イベントの欠落・順序の入れ替わり・重複のどれにも影響されない。
+     * 効果は「次の周期を待たずに1回早く見に行く」だけ。
+     */
+    private val screenChangedSignal = AtomicBoolean(false)
 
     /** 初回検出時に記録した ICOCA アプリの署名（あるべき値）。 */
     private var expectedSignature: String? = null
@@ -61,47 +90,199 @@ class IcocaAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        stopLoop()
+        scope.cancel()
         AccessibilityBridge.onServiceDisconnected()
-        session = null
         super.onDestroy()
     }
 
     override fun onInterrupt() {
         // システムからの中断要求。進行中のセッションは安全側で畳む。
-        session?.finish(
+        engine?.session?.finish(
             AutomationSession.Outcome.Stopped(
-                ErrorReason.UNEXPECTED_SCREEN,
+                io.github.nobu0601.icocaautocharge.domain.ErrorReason.UNEXPECTED_SCREEN,
                 "システムにより中断されました",
             ),
         )
-        session = null
+        stopLoop()
     }
+
+    // ------------------------------------------------------------- session
 
     /** チャージフローから自動操作を開始する。 */
     fun beginSession(
+        attemptId: Long,
         chargeAmountYen: Int,
         dryRun: Boolean,
         autoConfirmPayment: Boolean = false,
     ): AutomationSession {
-        // セッション開始のたびに読み直す。前回の起動以降に ICOCA が更新されている可能性があるため。
+        stopLoop()
+        // セッション開始のたびに読み直す。前回の起動以降に ICOCA が更新されている可能性がある。
         refreshSignatures()
-        val s = AutomationSession(
-            chargeAmountYen = chargeAmountYen,
+
+        val session = AutomationSession(
+            sessionId = UUID.randomUUID().toString().take(8),
+            attemptId = attemptId,
             startedAt = System.currentTimeMillis(),
+            chargeAmountYen = chargeAmountYen,
             dryRun = dryRun,
             autoConfirmPayment = autoConfirmPayment,
         )
-        session = s
-        // 1回のフローだけを見たいので、開始のたびに前回の記録を捨てる。
-        AccessibilityBridge.clearTrace()
-        trace("開始: 金額=$chargeAmountYen ドライラン=$dryRun 自動確定=$autoConfirmPayment")
+        val recorder = BridgeRecorder()
+        engine = AutomationEngine(
+            session = session,
+            guard = SafetyGuard(expectedSignature, autoConfirmPayment),
+            actualSignature = actualSignature,
+            recorder = recorder,
+        )
+
+        AccessibilityBridge.resetRecords()
+        recorder.log(
+            AutomationLogKind.SCREEN,
+            "開始 金額=$chargeAmountYen ドライラン=$dryRun 自動確定=$autoConfirmPayment",
+            session.startedAt,
+        )
         SecureLog.i(
             SecureLog.Tag.AUTOMATION,
-            "automation session started amount=$chargeAmountYen dryRun=$dryRun " +
-                "autoConfirm=$autoConfirmPayment",
+            "automation session ${session.sessionId} started amount=$chargeAmountYen " +
+                "dryRun=$dryRun autoConfirm=$autoConfirmPayment",
         )
-        return s
+        startLoop()
+        return session
     }
+
+    fun currentSession(): AutomationSession? = engine?.session
+
+    fun endSession() {
+        stopLoop()
+        engine = null
+        AccessibilityBridge.publishAutomation(null)
+    }
+
+    // ---------------------------------------------------------------- loop
+
+    /**
+     * 自動操作のループ（改修指示 §4）。
+     *
+     * イベントではなくここが時計。300ms ごとに現在画面を取り直してエンジンを1手進める。
+     * **300ms ごとにクリックするわけではない。** クリックは [ActionThrottle] が別途抑える。
+     */
+    private fun startLoop() {
+        loop = scope.launch {
+            while (isActive) {
+                val session = engine?.session ?: break
+                if (session.isFinished) {
+                    publishStatus(session)
+                    break
+                }
+                runCatching { step() }
+                    .onFailure { SecureLog.e("automation tick failed", it) }
+                delay(AutomationTimeouts.POLL_INTERVAL_MILLIS)
+            }
+        }
+    }
+
+    private fun stopLoop() {
+        loop?.cancel()
+        loop = null
+    }
+
+    private fun step() {
+        val engine = this.engine ?: return
+        val now = System.currentTimeMillis()
+        // 印は読んだら倒す。使い道は「変化したかもしれない」という記録だけ。
+        screenChangedSignal.set(false)
+
+        val snapshot = captureSnapshot(now)
+        AccessibilityBridge.publishForeground(snapshot != null)
+        engine.tick(snapshot, now)
+        publishStatus(engine.session)
+    }
+
+    private fun publishStatus(session: AutomationSession) {
+        AccessibilityBridge.publishAutomation(
+            AutomationStatusView.of(session, System.currentTimeMillis()),
+        )
+    }
+
+    // ------------------------------------------------------------ snapshot
+
+    /**
+     * いまの画面を撮る。ICOCA が前面にいなければ null。
+     *
+     * セッションが無くても、残高を読むためだけに呼ばれることがある。
+     */
+    private fun captureSnapshot(now: Long): ScreenSnapshot? {
+        val root: AccessibilityNodeInfo = runCatching { rootInActiveWindow }.getOrNull() ?: return null
+        val pkg = root.packageName?.toString() ?: return null
+        if (pkg != IcocaConstants.PACKAGE_NAME) return null
+
+        val nodes = NodeFinder.walk(root)
+        val texts = nodes.mapNotNull { NodeFinder.visibleText(it) }
+        if (texts.isEmpty()) {
+            // 中身がまだ無い画面。UNKNOWN として扱えるよう、空のまま返す。
+            // ここで null を返すと「ICOCA が前面にいない」と誤解されてしまう。
+            return ScreenSnapshot(
+                capturedAt = now,
+                packageName = pkg,
+                screen = IcocaScreen.UNKNOWN,
+                texts = emptyList(),
+                nodes = emptyList(),
+                access = NodeScreenAccess(root),
+            )
+        }
+
+        val screen = ScreenClassifier.classify(texts)
+        AccessibilityBridge.publishScreen(screen)
+        readBalance(texts, now)
+
+        val summaries = nodes.take(MAX_DUMP_NODES).map { it.toSummary() }
+        // 自動操作中は設定に関係なくダンプを残す。実機で止まったとき、
+        // そのときの画面構成が無いと原因が追えないため。
+        if (AccessibilityBridge.dumpEnabled || engine?.session?.isFinished == false) {
+            AccessibilityBridge.publishDump(ScreenDump(now, pkg, screen, summaries))
+        }
+
+        return ScreenSnapshot(
+            capturedAt = now,
+            packageName = pkg,
+            screen = screen,
+            texts = texts,
+            nodes = summaries,
+            access = NodeScreenAccess(root),
+        )
+    }
+
+    /** 残高テキストを拾って共有する。セッションの有無に関係なく行う。 */
+    private fun readBalance(texts: List<String>, now: Long) {
+        val yen = BalanceTextParser.extractBalanceFromLines(texts, preferLabeled = true) ?: return
+        AccessibilityBridge.publishBalance(
+            BalanceReading(yen, now, BalanceSourceType.ACCESSIBILITY),
+        )
+        SecureLog.d(SecureLog.Tag.BALANCE, "read balance from ICOCA screen: $yen")
+    }
+
+    // --------------------------------------------------------------- event
+
+    /**
+     * イベントは印を付けるだけ（改修指示 §5）。
+     *
+     * ここで分類も判定もクリックもしない。**重い処理をイベント経路から外すのが要点。**
+     * Compose 由来の大量イベントが来ても、印が立つだけで実害がない。
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pkg = event?.packageName?.toString() ?: return
+        if (pkg != IcocaConstants.PACKAGE_NAME) return
+        screenChangedSignal.set(true)
+
+        // セッションが無いときは、残高だけ読んでおく（ダッシュボード表示用）。
+        if (engine == null || engine?.session?.isFinished == true) {
+            runCatching { captureSnapshot(System.currentTimeMillis()) }
+                .onFailure { SecureLog.e("passive screen read failed", it) }
+        }
+    }
+
+    // ------------------------------------------------------------- utility
 
     /**
      * ICOCA アプリを前面に出す。
@@ -125,342 +306,6 @@ class IcocaAccessibilityService : AccessibilityService() {
         }
     }
 
-    fun currentSession(): AutomationSession? = session
-
-    fun endSession() {
-        session = null
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val pkg = event?.packageName?.toString() ?: return
-        // packageNames で絞ってはいるが、念のためここでも確認する
-        if (pkg != IcocaConstants.PACKAGE_NAME) return
-
-        val root: AccessibilityNodeInfo = rootInActiveWindow ?: return
-        try {
-            handleScreen(root, pkg)
-        } catch (e: Exception) {
-            SecureLog.e("accessibility event handling failed", e)
-            session?.finish(
-                AutomationSession.Outcome.Stopped(ErrorReason.UNKNOWN, "内部エラーが発生しました"),
-            )
-        }
-    }
-
-    private fun handleScreen(root: AccessibilityNodeInfo, pkg: String) {
-        val now = System.currentTimeMillis()
-        val nodes = NodeFinder.walk(root)
-        val texts = nodes.mapNotNull { NodeFinder.visibleText(it) }
-        if (texts.isEmpty()) {
-            SecureLog.d(SecureLog.Tag.AUTOMATION, "no readable text on ICOCA screen")
-            return
-        }
-
-        val screen = ScreenClassifier.classify(texts)
-        AccessibilityBridge.publishScreen(screen)
-
-        readBalance(texts, now)
-
-        val active = session
-        // 自動操作が走っている間は、設定に関係なくダンプを残す。
-        // 「実機で止まったが原因が分からない」を繰り返さないため、
-        // 止まった画面のノード構成を後から Debug 画面で見られるようにする。
-        if (AccessibilityBridge.dumpEnabled || (active != null && !active.isFinished)) {
-            AccessibilityBridge.publishDump(
-                ScreenDump(
-                    capturedAt = now,
-                    packageName = pkg,
-                    screen = screen,
-                    nodes = nodes.take(MAX_DUMP_NODES).map { it.toSummary() },
-                ),
-            )
-        }
-
-        if (active == null || active.isFinished) return
-        advance(active, root, texts, screen, pkg, now)
-    }
-
-    /** 残高テキストを拾って共有する。セッションの有無に関係なく行う。 */
-    private fun readBalance(texts: List<String>, now: Long) {
-        val yen = BalanceTextParser.extractBalanceFromLines(texts, preferLabeled = true) ?: return
-        val reading = BalanceReading(yen, now, BalanceSourceType.ACCESSIBILITY)
-        AccessibilityBridge.publishBalance(reading)
-        SecureLog.d(SecureLog.Tag.BALANCE, "read balance from ICOCA screen: $yen")
-    }
-
-    /** セッションを1ステップ進める。 */
-    private fun advance(
-        session: AutomationSession,
-        root: AccessibilityNodeInfo,
-        texts: List<String>,
-        screen: IcocaScreen,
-        pkg: String,
-        now: Long,
-    ) {
-        session.onScreen(screen, now)
-        trace("画面=$screen step=${session.stepCount}")
-
-        val guard = SafetyGuard(expectedSignature, session.autoConfirmPayment)
-        val verdict = guard.check(
-            SafetyGuard.Context(
-                packageName = pkg,
-                actualSignature = actualSignature,
-                screen = screen,
-                stepCount = session.stepCount,
-                millisSinceProgress = session.millisSinceProgress(now),
-                unknownStreak = session.unknownStreak,
-            ),
-        )
-
-        when (verdict) {
-            is SafetyGuard.Verdict.Stop -> {
-                trace("中止: ${verdict.reason}")
-                session.finish(AutomationSession.Outcome.Stopped(verdict.reason, verdict.message))
-                return
-            }
-            is SafetyGuard.Verdict.Finish -> {
-                trace("ユーザーに引き渡し: ${verdict.screen}")
-                val outcome = if (verdict.screen == IcocaScreen.COMPLETED) {
-                    AutomationSession.Outcome.Completed
-                } else {
-                    // 決済確認。ここから先はユーザーの操作（指示書 §9）
-                    AutomationSession.Outcome.HandedToUser(verdict.screen)
-                }
-                session.finish(outcome)
-                SecureLog.i(SecureLog.Tag.PAYMENT, "handing control to the user at $screen")
-                return
-            }
-            // まだ判断できない画面。何も押さずに次のイベントを待つ。
-            SafetyGuard.Verdict.Wait -> {
-                trace("判別できない画面のため待機（${session.unknownStreak}回目）")
-                if (session.unknownStreak == 1) reportUnfound("判別できる要素", root)
-                return
-            }
-            SafetyGuard.Verdict.Proceed -> Unit
-        }
-
-        when (screen) {
-            IcocaScreen.MAIN -> clickIfFound(session, root, CHARGE_ENTRY_LABELS, now, "charge entry")
-            IcocaScreen.CHARGE_ENTRY ->
-                clickIfFound(session, root, CHARGE_ENTRY_LABELS + CHARGE_METHOD_LABELS, now, "charge method")
-            IcocaScreen.CHARGE_AMOUNT -> clickAmount(session, root, texts, guard, now)
-            // ここに来るのは autoConfirmPayment が有効なときだけ。
-            // 無効なら SafetyGuard が Finish を返して、上の when で終わっている。
-            IcocaScreen.PAYMENT_CONFIRM -> clickConfirm(session, root, texts, guard, now)
-            IcocaScreen.PROCESSING -> Unit // 待つ
-            else -> Unit
-        }
-    }
-
-    /**
-     * 決済の確定ボタンを押す。**このアプリで唯一、お金が動く操作。**
-     *
-     * 押す前に2つ確認し、どちらか欠けたら押さずに止める。
-     *  1. 画面に設定どおりの金額が表示されていること
-     *  2. 確定ボタンのラベルが既知のものと完全一致すること
-     *
-     * 見つからないときは、次に直せるようクリック可能なラベルをログに残す。
-     */
-    private fun clickConfirm(
-        session: AutomationSession,
-        root: AccessibilityNodeInfo,
-        texts: List<String>,
-        guard: SafetyGuard,
-        now: Long,
-    ) {
-        if (!guard.isAmountVisibleOnScreen(texts, session.chargeAmountYen)) {
-            trace("決済画面に設定額が無いため確定しない")
-            session.finish(
-                AutomationSession.Outcome.Stopped(
-                    ErrorReason.AMOUNT_MISMATCH,
-                    "決済画面に設定した金額が見当たらないため、確定しませんでした",
-                ),
-            )
-            return
-        }
-        val node = NodeFinder.findClickableByExactText(root, CONFIRM_LABELS)
-        if (node == null) {
-            // 確定ボタンが無いのに「支払いへ進む」ボタンがあるなら、
-            // ここはまだ確認ダイアログではなく金額選択画面。判定が寄りすぎただけなので、
-            // 確認ダイアログへ進む。このボタンを押しても決済は確定しない。
-            val proceed = NodeFinder.findClickableByTextSuffix(root, PROCEED_TO_PAYMENT_SUFFIXES)
-            if (proceed != null) {
-                trace("確定ボタンは無いが支払いへ進むボタンがあるので、まず確認画面へ進む")
-                performClick(session, proceed, "proceed to payment", now)
-                return
-            }
-            // 押さずに待てば、進展しないまま STALL_TIMEOUT で安全に終わる。
-            // どのラベルを足すべきか分かるよう、押せるものを控えておく。
-            reportUnfound("確定ボタン", root)
-            return
-        }
-        performClick(session, node, "confirm:${NodeFinder.visibleText(node)}", now)
-    }
-
-    private fun clickIfFound(
-        session: AutomationSession,
-        root: AccessibilityNodeInfo,
-        labels: List<String>,
-        now: Long,
-        what: String,
-    ) {
-        val node = NodeFinder.findClickableByExactText(root, labels)
-        if (node == null) {
-            SecureLog.d(SecureLog.Tag.AUTOMATION, "no clickable node for $what")
-            return
-        }
-        performClick(session, node, "$what:${NodeFinder.visibleText(node)}", now)
-    }
-
-    /**
-     * 金額ボタンを押す。
-     *
-     * **設定したチャージ金額と完全に一致するラベルのボタンしか押さない**（指示書 §11）。
-     * 近い金額で代用したりはしない。
-     *
-     * 一致するボタンが無い場合は2つに分かれる。
-     *  - 設定額がすでに画面に出ている → 押す必要がないので、そのまま次へ進む
-     *  - 設定額がどこにも無い → 想定した画面ではないので、はっきり失敗させる
-     *
-     * どちらの場合も「黙って待つ」はしない。金額選択画面は押しても見た目が
-     * 変わらないことがあり、次のイベントが来ないまま永久に止まってしまうため。
-     */
-    private fun clickAmount(
-        session: AutomationSession,
-        root: AccessibilityNodeInfo,
-        texts: List<String>,
-        guard: SafetyGuard,
-        now: Long,
-    ) {
-        if (!session.amountSelected) {
-            val variants = guard.amountLabelVariants(session.chargeAmountYen)
-            // 入力欄を除外する。実機の金額選択画面は上部に編集可能な金額欄があり、
-            // そこにも下のプリセットと同じ「5,000」が出る。入力欄を押しても
-            // キーボードが出るだけで先に進まない。
-            val node = NodeFinder.findClickableByExactText(root, variants, excludeEditable = true)
-            when {
-                node != null -> {
-                    val label = NodeFinder.visibleText(node)
-                    if (!guard.verifyAmountLabel(label, session.chargeAmountYen)) {
-                        trace("金額ボタンのラベルが設定と不一致のため中止")
-                        session.finish(
-                            AutomationSession.Outcome.Stopped(
-                                ErrorReason.AMOUNT_MISMATCH,
-                                "選択しようとした金額が設定と一致しません",
-                            ),
-                        )
-                        return
-                    }
-                    performClick(session, node, "amount:$label", now)
-                    session.markAmountSelected()
-                }
-                // ボタンが見つからなくても、設定額がすでに金額欄に入っているなら
-                // 選び直す必要はない。ここで諦めて return すると、画面が変わらない＝
-                // 次のアクセシビリティイベントが来ないため、金額選択画面で永久に止まる。
-                guard.isAmountVisibleOnScreen(texts, session.chargeAmountYen) -> {
-                    trace("金額ボタンは見つからないが、設定額は画面に出ているのでそのまま進む")
-                    SecureLog.i(
-                        SecureLog.Tag.AUTOMATION,
-                        "amount preset not found but the configured amount is already on screen",
-                    )
-                    session.markAmountSelected()
-                }
-                // 設定額がどこにも見当たらない。押せるものを控えて、はっきり失敗させる。
-                // 黙って待つと、履歴にも通知にも何も残らないまま終わってしまう。
-                else -> {
-                    reportUnfound("金額ボタン", root)
-                    session.finish(
-                        AutomationSession.Outcome.Stopped(
-                            ErrorReason.AMOUNT_MISMATCH,
-                            "チャージ金額を選べませんでした（設定額が画面に見当たりません）",
-                        ),
-                    )
-                    return
-                }
-            }
-        }
-
-        // 実機の金額選択画面は、金額ボタンと支払いへ進むボタンが同じ画面にある。
-        // 「支払いへ進む」ボタンは金額を選ぶ前から画面に存在しているので、
-        // 金額を押した直後、次のアクセシビリティイベントを待たずにここで続けて探す。
-        //
-        // 待ってはいけない理由（実機で実際に踏んだ不具合）: すでに「5,000」が
-        // 表示されている状態で「5,000」を押しても、画面の見た目が変わらないため
-        // 次のイベントが発生せず、advance() が二度と呼ばれない。その結果、
-        // 金額を選んだところで永久に止まる。同じ root にすでに「支払いへ進む」
-        // ボタンが写っているので、イベントを待たずに同じ処理内で押しにいく。
-        proceedToPayment(session, root, now)
-    }
-
-    /**
-     * 金額選択画面から支払いの確認へ進む。
-     *
-     * 実機のボタンは「****9804でチャージ」のようにカード番号が入るため、
-     * 末尾一致で探す。**このボタンを押しても決済は確定せず、確認ダイアログが出るだけ。**
-     * 確定するかどうかは、そのダイアログで [clickConfirm] が判断する。
-     *
-     * ラベルにカード番号の下4桁が含まれるので、ログには出さない（指示書 §17, §24）。
-     */
-    private fun proceedToPayment(
-        session: AutomationSession,
-        root: AccessibilityNodeInfo,
-        now: Long,
-    ) {
-        val node = NodeFinder.findClickableByTextSuffix(root, PROCEED_TO_PAYMENT_SUFFIXES)
-        if (node == null) {
-            reportUnfound("支払いへ進むボタン", root)
-            return
-        }
-        performClick(session, node, "proceed to payment", now)
-    }
-
-    /**
-     * 探していたボタンが見つからなかったことを、後から追えるように記録する。
-     *
-     * 何が押せたのかが分からないと直しようがないので、画面上のクリック可能な
-     * ラベルを添える。ラベルにはカード番号（「****9804でチャージ」）が入りうるため、
-     * 必ず [LogRedactor] を通してから出す（指示書 §17, §24）。
-     */
-    private fun reportUnfound(what: String, root: AccessibilityNodeInfo) {
-        val labels = LogRedactor.redact(
-            NodeFinder.clickableLabels(root).joinToString(" / ").take(MAX_TRACE_LABEL_CHARS),
-        )
-        trace("$what が見つからない。押せるもの: $labels")
-        SecureLog.w(SecureLog.Tag.AUTOMATION, "$what not found; clickable labels: $labels")
-    }
-
-    private fun trace(line: String) {
-        AccessibilityBridge.trace(LogRedactor.redact(line))
-    }
-
-    private fun performClick(
-        session: AutomationSession,
-        node: AccessibilityNodeInfo,
-        what: String,
-        now: Long,
-    ) {
-        if (session.dryRun) {
-            session.plannedClicks += what
-            session.onStep(now)
-            trace("[ドライラン] 押す予定: $what")
-            SecureLog.i(SecureLog.Tag.AUTOMATION, "[dryRun] would click $what")
-            return
-        }
-        val ok = runCatching { node.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
-            .getOrDefault(false)
-        session.onStep(now)
-        trace(if (ok) "押した: $what" else "押せなかった: $what")
-        SecureLog.i(SecureLog.Tag.AUTOMATION, "click $what -> $ok")
-        if (!ok) {
-            session.finish(
-                AutomationSession.Outcome.Stopped(
-                    ErrorReason.UI_STRUCTURE_CHANGED,
-                    "ボタンを操作できませんでした",
-                ),
-            )
-        }
-    }
-
     private fun AccessibilityNodeInfo.toSummary() = NodeSummary(
         className = className?.toString(),
         viewId = viewIdResourceName,
@@ -470,46 +315,20 @@ class IcocaAccessibilityService : AccessibilityService() {
         editable = isEditable,
     )
 
+    /** エンジンの記録を [AccessibilityBridge] に流す。 */
+    private class BridgeRecorder : AutomationRecorder {
+        override fun log(kind: AutomationLogKind, detail: String, nowMillis: Long) {
+            val safe = LogRedactor.redact(detail)
+            AccessibilityBridge.addLog(AutomationLogEntry(nowMillis, kind, safe))
+            SecureLog.i(SecureLog.Tag.AUTOMATION, "$kind $safe")
+        }
+
+        override fun snapshot(record: SnapshotRecord) {
+            AccessibilityBridge.addSnapshot(record)
+        }
+    }
+
     private companion object {
-        /**
-         * メイン画面からチャージへ進むボタンのラベル。
-         * 実機は「チャージ」ちょうど（2026-09-09 / Pixel 8a で確認）。残りは保険。
-         */
-        val CHARGE_ENTRY_LABELS = listOf("チャージ", "チャージする", "入金", "入金（チャージ）")
-
-        /**
-         * 支払い方法を選ぶ画面があった場合のラベル。
-         * 実機ではカードが選択済みで、この画面は出ずに金額選択へ直行する。
-         */
-        val CHARGE_METHOD_LABELS = listOf("クレジットカード", "登録済みのカード", "銀行口座")
-
-        /**
-         * 金額選択画面から支払い確認へ進むボタンの末尾。
-         *
-         * 実機は「****9804でチャージ」で、前半にカード番号が入るため末尾で照合する
-         * （2026-09-09 / Pixel 8a で確認）。
-         * **このボタンを押しても決済は確定せず、確認ダイアログが出るだけ。**
-         */
-        val PROCEED_TO_PAYMENT_SUFFIXES = listOf("でチャージ")
-
-        /**
-         * 決済を確定するボタンのラベル。
-         *
-         * 実機の「チャージ確認」ダイアログは「キャンセル」と「チャージする」の2択で、
-         * 「チャージする」を 2026-09-09 / Pixel 8a で確認済み。残りは他バージョン向けの保険。
-         *
-         * 「はい」「OK」のような汎用語は入れない。金額が出ていることは別途確認しているが、
-         * それでも汎用語で確定を押すのは危うい。
-         * 一致しなければ押さずに止まるだけなので、外れていても安全側に倒れる。
-         */
-        val CONFIRM_LABELS = listOf(
-            "チャージする", "決済する", "支払う", "確定する", "確定",
-            "この内容でチャージする", "チャージを実行", "実行する",
-        )
-
         const val MAX_DUMP_NODES = 120
-
-        /** 診断行に載せるラベル一覧の長さの上限。 */
-        const val MAX_TRACE_LABEL_CHARS = 300
     }
 }

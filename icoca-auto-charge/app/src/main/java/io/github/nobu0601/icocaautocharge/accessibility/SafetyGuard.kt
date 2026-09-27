@@ -47,9 +47,6 @@ class SafetyGuard(
         val actualSignature: String?,
         val screen: IcocaScreen,
         val stepCount: Int,
-        val millisSinceProgress: Long,
-        /** 判別できない画面が連続した回数（[AutomationSession.unknownStreak]）。 */
-        val unknownStreak: Int = 0,
     )
 
     fun check(ctx: Context): Verdict {
@@ -74,14 +71,12 @@ class SafetyGuard(
         if (ctx.stepCount > MAX_STEPS) {
             return stop(ErrorReason.STEP_LIMIT_EXCEEDED, "操作の手数が上限に達したため中止しました")
         }
-        // 4. 画面が進まない
-        if (ctx.millisSinceProgress > STALL_TIMEOUT_MILLIS) {
-            return stop(
-                ErrorReason.UI_STRUCTURE_CHANGED,
-                "ICOCAアプリの画面が変更された可能性があります。自動操作を中止しました",
-            )
-        }
-        // 5. 画面種別ごとの判断
+        // 4. 画面種別ごとの判断
+        //
+        // 「同じ画面のまま15秒」をここで見るのはやめた（改修指示 §8）。
+        // 画面が変わらないこと自体は異常ではない（決済確認は人が読む画面だし、
+        // 通信待ちも動かない）。いま何を待っているかに応じた上限は
+        // [AutomationTimeouts] が持ち、[AutomationEngine] が測る。
         return when (ctx.screen) {
             // 本人認証は設定に関係なく必ず停止する。ここは動かさない。
             IcocaScreen.AUTHENTICATION -> stop(
@@ -92,7 +87,7 @@ class SafetyGuard(
                 ErrorReason.PAYMENT_DECLINED,
                 "ICOCAアプリがエラーを表示しています",
             )
-            // 判別できない画面。**押さないが、すぐには諦めない。**
+            // 判別できない画面。**押さないが、ここでは諦めない。**
             //
             // 実機では「チャージ」を押した直後に、まだ中身の無い画面
             // （「更新」と時刻だけの13ノード）が一瞬挟まる。ここで即中止していたため、
@@ -100,16 +95,10 @@ class SafetyGuard(
             // （ICOCA アプリ側は遷移を続けるので、ユーザーには
             // 「チャージ画面が出たまま自動操作が止まった」ように見えていた）。
             //
-            // 何もしないので、誤操作の危険は増えない。続くようなら回数で打ち切る。
-            IcocaScreen.UNKNOWN ->
-                if (ctx.unknownStreak > MAX_UNKNOWN_STREAK) {
-                    stop(
-                        ErrorReason.UNEXPECTED_SCREEN,
-                        "想定していない画面が続いたため、自動操作を中止しました",
-                    )
-                } else {
-                    Verdict.Wait
-                }
+            // どれだけ待つかはこのクラスの担当ではない（改修指示 §7）。
+            // 回数ではなく時間で測るべきで、時計を持っているのは
+            // [AutomationEngine] のほう。ここは「押してはいけない」とだけ言う。
+            IcocaScreen.UNKNOWN -> Verdict.Wait
             // 決済確認は設定次第。自動確定しない場合はユーザーに委ねて正常終了する。
             IcocaScreen.PAYMENT_CONFIRM ->
                 if (autoConfirmPayment) Verdict.Proceed else Verdict.Finish(ctx.screen)
@@ -185,15 +174,5 @@ class SafetyGuard(
         /** 1回のフローで許すステップ数。 */
         const val MAX_STEPS = 12
 
-        /** 同じ画面のまま進展しないと判断するまでの時間。 */
-        const val STALL_TIMEOUT_MILLIS = 15_000L
-
-        /**
-         * 判別できない画面を何回まで見送るか。
-         *
-         * 画面遷移の途中に挟まる空の画面は1〜2回で終わる。
-         * ここを超えるなら、遷移ではなく本当に知らない画面にいる。
-         */
-        const val MAX_UNKNOWN_STREAK = 6
     }
 }

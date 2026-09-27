@@ -1,12 +1,10 @@
 package io.github.nobu0601.icocaautocharge.balance
 
-import io.github.nobu0601.icocaautocharge.accessibility.AutomationSession
 import io.github.nobu0601.icocaautocharge.accessibility.IcocaScreen
 import io.github.nobu0601.icocaautocharge.accessibility.SafetyGuard
 import io.github.nobu0601.icocaautocharge.accessibility.ScreenClassifier
 import io.github.nobu0601.icocaautocharge.core.IcocaConstants
 import io.github.nobu0601.icocaautocharge.core.LogRedactor
-import io.github.nobu0601.icocaautocharge.domain.ErrorReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -265,50 +263,20 @@ class RealDeviceScreenTest {
     }
 
     @Test
-    fun `判別できない画面が一度出ただけでは自動操作を中止しない`() {
-        val guard = SafetyGuard(expectedSignature = null, autoConfirmPayment = true)
-        val verdict = guard.check(unknownScreenContext(streak = 1))
-        assertEquals(SafetyGuard.Verdict.Wait, verdict)
-    }
-
-    @Test
-    fun `判別できない画面が続いたら自動操作を中止する`() {
+    fun `遷移中の空の画面では押さないが中止もしない`() {
+        // 押してはいけないことだけをここで確かめる。
+        // どれだけ待つかは AutomationEngineTest の担当（改修指示 §7）。
         val guard = SafetyGuard(expectedSignature = null, autoConfirmPayment = true)
         val verdict = guard.check(
-            unknownScreenContext(streak = SafetyGuard.MAX_UNKNOWN_STREAK + 1),
+            SafetyGuard.Context(
+                packageName = IcocaConstants.PACKAGE_NAME,
+                actualSignature = null,
+                screen = ScreenClassifier.classify(transitionalBlankScreen),
+                stepCount = 1,
+            ),
         )
-        assertTrue(verdict is SafetyGuard.Verdict.Stop)
-        assertEquals(
-            ErrorReason.UNEXPECTED_SCREEN,
-            (verdict as SafetyGuard.Verdict.Stop).reason,
-        )
+        assertEquals(SafetyGuard.Verdict.Wait, verdict)
     }
-
-    @Test
-    fun `判別できる画面を挟むと連続回数は0に戻る`() {
-        val session = AutomationSession(
-            chargeAmountYen = 3_000,
-            startedAt = 0L,
-            dryRun = true,
-        )
-        session.onScreen(IcocaScreen.MAIN, 0L)
-        session.onScreen(IcocaScreen.UNKNOWN, 1L)
-        session.onScreen(IcocaScreen.UNKNOWN, 2L)
-        assertEquals(2, session.unknownStreak)
-
-        // 遷移が終わって金額選択画面に着けば、それまでの空振りは無かったことにする。
-        session.onScreen(IcocaScreen.CHARGE_AMOUNT, 3L)
-        assertEquals(0, session.unknownStreak)
-    }
-
-    private fun unknownScreenContext(streak: Int) = SafetyGuard.Context(
-        packageName = IcocaConstants.PACKAGE_NAME,
-        actualSignature = null,
-        screen = IcocaScreen.UNKNOWN,
-        stepCount = 1,
-        millisSinceProgress = 0L,
-        unknownStreak = streak,
-    )
 
     @Test
     fun `金額ボタンは円が付かなくても設定額と一致すると判定できる`() {

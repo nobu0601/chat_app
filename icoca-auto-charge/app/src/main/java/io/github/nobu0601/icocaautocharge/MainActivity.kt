@@ -203,7 +203,10 @@ private fun AppRoot(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val dump by viewModel.dump.collectAsStateWithLifecycle()
-    val trace by viewModel.trace.collectAsStateWithLifecycle()
+    val automation by viewModel.automation.collectAsStateWithLifecycle()
+    val snapshots by viewModel.snapshots.collectAsStateWithLifecycle()
+    val automationLog by viewModel.automationLog.collectAsStateWithLifecycle()
+    val icocaForeground by viewModel.icocaForeground.collectAsStateWithLifecycle()
     val probeReport by viewModel.probeReport.collectAsStateWithLifecycle()
     val workState by workStateFlow.collectAsStateWithLifecycle()
 
@@ -265,7 +268,11 @@ private fun AppRoot(
                     state = state,
                     workState = workState,
                     dump = dump,
-                    trace = trace,
+                    automation = automation,
+                    snapshots = snapshots,
+                    automationLog = automationLog,
+                    icocaForeground = icocaForeground,
+                    accessibilityConnected = state.accessibilityRunning,
                     probeReport = probeReport,
                     dumpEnabled = dumpEnabled,
                     dryRun = dryRun,
