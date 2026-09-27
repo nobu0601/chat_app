@@ -74,6 +74,22 @@ interface ScreenAccess {
     fun clickableLabels(): List<String>
 
     fun click(target: ClickTarget): Boolean
+
+    /**
+     * 直前の [click] で何を試し、それぞれどうだったか。**診断専用。**
+     *
+     * 押せなかったときに「どの階層まで遡って、それぞれ何を返したか」が分からないと、
+     * 実機では手の打ちようがない。集めておきながら出していなかったのが
+     * 前回の行き詰まりの原因だった。
+     */
+    fun lastClickReport(): String? = null
+
+    /**
+     * ツリー全体で ACTION_CLICK を公開しているノードの一覧。**診断専用。**
+     *
+     * 「そもそもこの画面に押せるノードが存在するのか」を確かめるための最後の手段。
+     */
+    fun clickableInventory(): List<String> = emptyList()
 }
 
 /**

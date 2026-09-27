@@ -118,6 +118,26 @@ object NodeFinder {
             .mapNotNull { node -> visibleText(node) ?: aggregatedText(node).takeIf { it.isNotEmpty() } }
             .distinct()
 
+    /**
+     * ツリー全体で ACTION_CLICK を公開しているノードの一覧。**診断専用。**
+     *
+     * 「そもそもこの画面に押せるノードがあるのか」を確かめるためのもの。
+     * すべて押せないなら、ユーザー補助の公開 API では押せない画面だと分かる
+     * （そのときに座標タップへ逃げてはいけない。指示書 §26）。
+     *
+     * カード番号を含みうるので、出す前に必ず `LogRedactor` を通すこと。
+     */
+    fun clickableInventory(root: AccessibilityNodeInfo?): List<String> =
+        walk(root).mapNotNull { node ->
+            val clickable = node.isClickable
+            val action = exposesClickAction(node)
+            if (!clickable && !action) return@mapNotNull null
+            val name = node.className?.toString()?.substringAfterLast('.')
+            val label = visibleText(node)?.take(20) ?: "-"
+            val visible = runCatching { node.isVisibleToUser }.getOrDefault(false)
+            "$name[$label] click=$clickable action=$action visible=$visible"
+        }
+
     /** テキストを含むノードを探す（画面判定など、押さない用途にのみ使う）。 */
     fun findByTextContains(root: AccessibilityNodeInfo?, needle: String): AccessibilityNodeInfo? =
         walk(root).firstOrNull { visibleText(it)?.contains(needle) == true }

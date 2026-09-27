@@ -191,12 +191,14 @@ fun DebugScreen(
             if (automationLog.isEmpty()) {
                 Text("まだ記録がありません。")
             } else {
+                // **折り返して出す。** 横スクロールにしていたため、
+                // [PAYMENT_METHOD_BUTTON_FOUND] の後ろに入れた isClickable / actions /
+                // parentClickable / depth が画面外で読めず、実機の診断が進まなかった。
                 Text(
                     automationLog.joinToString("\n") { e ->
                         "${formatClock(e.timestamp)} ${e.kind.name} ${e.detail}"
                     },
                     style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                 )
             }
         }

@@ -149,7 +149,12 @@ class AutomationSession(
         lastAction = action
         lastActionAt = nowMillis
         lastActionResult = result
-        currentStep++
+        // **押せなかった操作は手数に数えない。**
+        // 手数の上限は「無限ループで画面を進め続けない」ための歯止めであって、
+        // 押し直しの回数を制限するためのものではない。
+        // ここで数えていたせいで、再試行が12回で打ち切られ、
+        // 状態ごとの timeout に届く前に STEP_LIMIT_EXCEEDED になっていた。
+        if (result) currentStep++
     }
 
     /** 押す相手を決めた。押す前に呼ぶので、押せなかった場合も何を掴んだかが残る。 */

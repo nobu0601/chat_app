@@ -55,6 +55,12 @@ object AutomationTimeouts {
      */
     private val BY_STATE: Map<AutomationState, Long> = mapOf(
         AutomationState.LAUNCHING_ICOCA to 15_000L,
+        // 「待つ」状態だけに上限を置くと穴が開く。押す側の状態で
+        // performAction が失敗し続けると、どの上限にも当たらないまま
+        // セッション全体の5分まで粘ってしまう（テストで発覚）。
+        AutomationState.MAIN_READY to 20_000L,
+        AutomationState.CHARGE_ENTRY to 20_000L,
+        AutomationState.CHARGE_AMOUNT to 20_000L,
         AutomationState.WAITING_FOR_MAIN to 20_000L,
         AutomationState.WAITING_FOR_CHARGE_ENTRY to 20_000L,
         AutomationState.WAITING_FOR_AMOUNT to 20_000L,

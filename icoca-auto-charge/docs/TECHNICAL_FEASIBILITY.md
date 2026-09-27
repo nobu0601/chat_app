@@ -140,6 +140,51 @@ ScrollView id=jp.co.westjr.android.icocaapp:...
 クリック失敗はセッション終了ではなく再試行にし、`PAYMENT_READY` の20秒で区切る。
 設計は `DESIGN.md` §8.6.2。
 
+### 0.8 支払いボタンは ACTION_CLICK を受け付けない（結論）
+
+2026-09-27 21:14 の実機ログ。切れていた診断行を全部つなぐとこうなる。
+
+```
+[PAYMENT_METHOD_BUTTON_FOUND]
+  text=****でチャージ
+  className=android.widget.TextView
+  isClickable=false   isEnabled=true
+  actions=...,FOCUS,SELECT,8,64,16908342,CLICK
+  parent1=android.widget.ScrollView  parent1Clickable=false
+  parent2=android.widget.ScrollView  parent2Clickable=false
+  depth=1
+[PAYMENT_METHOD_BUTTON_CLICK] result=false
+```
+
+**action 一覧に `CLICK` が入っているのに `isClickable=false`。**
+
+Android の `View.performAccessibilityActionInternal` は `ACTION_CLICK` を受けたとき
+
+```java
+case AccessibilityNodeInfo.ACTION_CLICK: {
+    if (isClickable()) { performClickInternal(); return true; }
+} break;   // ← false を返す
+```
+
+と `isClickable()` を確認する。**false なら何もせず false を返す。**
+action 一覧に CLICK があっても関係ない。
+
+祖先も `ScrollView` が2段とも `Clickable=false`。押せるノードは画面上に
+金額プリセットの `Button` 5個・`EditText`・`ImageView`・`ImageButton`（上へ移動）
+だけで、**支払いボタンに対応する押せるノードが存在しない**。
+
+16秒・十数回の再試行、`refresh()`、`ACTION_SHOW_ON_SCREEN`、
+祖先を1段ずつ実際に `performAction` する、のいずれでも結果は変わらなかった。
+
+**結論: この ICOCA のバージョンでは、ユーザー補助の公開 API でこのボタンを押せない。**
+
+残る手段は `dispatchGesture` による座標タップだが、これは指示書 §26 と
+改修指示の要件11（「座標タップで代替してはいけない」）で禁じられている。
+禁止を破らない限り、この1操作だけは自動化できない。
+
+→ 失敗として畳まず、**`USER_ACTION_REQUIRED` としてユーザーへ引き渡す**ことにした。
+金額選択までは自動で運べるので、最後の1タップだけ人が押す運用になる。
+
 ## 1. 指示書 §28 の 8 項目
 
 | # | 検証項目 | 机上判定（予測） | 実機結果 | 備考 |

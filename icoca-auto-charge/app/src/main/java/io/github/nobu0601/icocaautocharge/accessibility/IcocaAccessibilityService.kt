@@ -156,7 +156,9 @@ class IcocaAccessibilityService : AccessibilityService() {
     fun endSession() {
         stopLoop()
         engine = null
-        AccessibilityBridge.publishAutomation(null)
+        // **最後の状態は消さない。** 消すと Debug 画面の Matched Text /
+        // Matched Node Clickable / Clickable Ancestor Depth が見られなくなり、
+        // 止まった直後こそ必要な情報が失われる。次のセッション開始時に差し替わる。
     }
 
     // ---------------------------------------------------------------- loop

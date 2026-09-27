@@ -624,18 +624,26 @@ class FailedClickRetryTest {
     }
 
     @Test
-    fun `押せないまま時間切れになれば安全に止まる`() {
+    fun `押せないまま時間切れになれば決着する`() {
         // ずっと押せない。無限に粘らず、状態ごとの timeout で畳むこと。
+        //
+        // 押せなかった場合の決着は**引き渡し**にしている。こちらの不具合ではなく
+        // ICOCA 側のボタンが ACTION_CLICK を受け付けないだけなので、
+        // 失敗として赤くするより「ここからはご自身で」と渡すほうが役に立つ。
         val s = screen()
         s.clickSucceeds = false
         val (e, _) = engine(s)
         var t = 0L
-        while (t < 60_000 && e.session.outcome == null) {
+        while (t < 90_000 && e.session.outcome == null) {
             e.tick(s.snapshot(t), t)
             t += 400
         }
         val outcome = e.session.outcome
-        assertTrue("最終的には止まる", outcome is AutomationSession.Outcome.Stopped)
+        assertTrue("放置されず決着する（実際は $outcome）", outcome != null)
+        assertTrue(
+            "押せなかっただけなので引き渡し",
+            outcome is AutomationSession.Outcome.HandedToUser,
+        )
     }
 
     @Test
@@ -650,5 +658,51 @@ class FailedClickRetryTest {
             t += 300
         }
         assertTrue("試行が周期ごとになっていない（${s.clickAttempts}回）", s.clickAttempts <= 5)
+    }
+}
+
+/**
+ * ボタンは見つかったが、Android が ACTION_CLICK を受け付けない場合。
+ *
+ * 実機の ICOCA では「****9804でチャージ」が `isClickable=false` の `TextView` で、
+ * 祖先もすべて押せなかった。Android の `View.performAccessibilityActionInternal` は
+ * `ACTION_CLICK` を受けても `isClickable()` が false なら何もせず false を返す。
+ * アクション一覧に CLICK があっても同じ。
+ *
+ * これはこちらの不具合ではないので、失敗として畳むよりユーザーに渡すほうが役に立つ。
+ */
+class UnclickableButtonHandoverTest {
+
+    @Test
+    fun `押せないボタンは失敗ではなくユーザーへ引き渡す`() {
+        val screen = FakeScreen(
+            texts = listOf(
+                "チャージ", "チャージ金額", "1,000", "円",
+                "1,000", "2,000", "3,000", "5,000", "10,000", "****9804でチャージ",
+            ),
+            buttons = mapOf("1,000" to false, "****9804でチャージ" to false),
+        )
+        // 実機どおり: 金額プリセットは押せるが、支払いボタンだけ押せない。
+        screen.unclickableLabels = setOf("****9804でチャージ")
+        val session = AutomationSession(
+            sessionId = "handover", attemptId = 1L, startedAt = 0L,
+            chargeAmountYen = 1_000, dryRun = false, autoConfirmPayment = false,
+        )
+        val e = AutomationEngine(
+            session,
+            SafetyGuard(expectedSignature = null, autoConfirmPayment = false),
+            actualSignature = null,
+        )
+        var t = 0L
+        while (t < 90_000 && session.outcome == null) {
+            e.tick(screen.snapshot(t), t)
+            t += 400
+        }
+        val outcome = session.outcome
+        assertTrue(
+            "失敗ではなく引き渡しにする（実際は $outcome）",
+            outcome is AutomationSession.Outcome.HandedToUser,
+        )
+        assertEquals(AutomationStatus.USER_ACTION_REQUIRED, session.status)
     }
 }

@@ -1,6 +1,7 @@
 package io.github.nobu0601.icocaautocharge.accessibility
 
 import android.view.accessibility.AccessibilityNodeInfo
+import io.github.nobu0601.icocaautocharge.core.TextNormalizer
 
 /**
  * 実機の `AccessibilityNodeInfo` を [ScreenAccess] として包む。
@@ -64,11 +65,13 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
      * @return 押せたかどうか。**true でも「チャージ操作が成功した」ではない。**
      */
     override fun click(target: ClickTarget): Boolean {
+        attempts.clear()
         val match = resolved[target.key] ?: return false
         val node = match.node
 
         // 1) 掴んでから時間が経っている。古いノードを押しても何も起きない。
-        runCatching { node.refresh() }
+        val refreshed = runCatching { node.refresh() }.getOrDefault(false)
+        attempts += "refresh=$refreshed visible=${isOnScreen(node)}"
 
         // 2) 画面外なら見えるところへ持ってくる。
         if (!isOnScreen(node)) {
@@ -99,11 +102,30 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
             current = runCatching { here.parent }.getOrNull()
             hops++
         }
+
+        // 祖先の系列が全滅した。同じ語を内包していて ACTION_CLICK を公開している
+        // ノードが他にもあるかもしれないので、そちらも試す。
+        // 見た目のボタンとノード構造は一致しないので、1系統で諦めない。
+        val reference2 = TextNormalizer.normalize(reference)
+        for (candidate in NodeFinder.walk(root)) {
+            if (!NodeFinder.exposesClickAction(candidate)) continue
+            if (!NodeFinder.enclosesOnlyTheButton(candidate, reference)) continue
+            val ok = runCatching { candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+                .getOrDefault(false)
+            attempts += "alt:${candidate.className?.toString()?.substringAfterLast('.')}=$ok"
+            if (ok) return true
+        }
+        attempts += "全滅(ref=${reference2.length}文字)"
         return false
     }
 
     /** 直前のクリックで何を試したか。診断表示に使う。 */
-    val attempts = mutableListOf<String>()
+    private val attempts = mutableListOf<String>()
+
+    override fun lastClickReport(): String? =
+        attempts.takeIf { it.isNotEmpty() }?.joinToString(" | ")
+
+    override fun clickableInventory(): List<String> = NodeFinder.clickableInventory(root)
 
     private fun isOnScreen(node: AccessibilityNodeInfo): Boolean =
         runCatching { node.isVisibleToUser }.getOrDefault(true)

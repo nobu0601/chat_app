@@ -28,6 +28,14 @@ class FakeScreen(
     /** この回数だけ失敗してから成功する。実機の「画面外で押せない → 入れ直せば押せる」の再現。 */
     var failFirstClicks: Int = 0
 
+    /**
+     * このラベルのボタンだけ押せない。
+     *
+     * 実機の金額選択画面がまさにこれで、金額プリセットは本物の `Button` なので押せるが、
+     * 「****9804でチャージ」だけが `isClickable=false` の `TextView` で押せない。
+     */
+    var unclickableLabels: Set<String> = emptySet()
+
     /** 失敗も含めた試行回数。 */
     var clickAttempts: Int = 0
 
@@ -83,6 +91,7 @@ class FakeScreen(
     override fun click(target: ClickTarget): Boolean {
         clickAttempts++
         if (!clickSucceeds) return false
+        if ((target.label ?: "") in unclickableLabels) return false
         if (failFirstClicks > 0) {
             failFirstClicks--
             return false

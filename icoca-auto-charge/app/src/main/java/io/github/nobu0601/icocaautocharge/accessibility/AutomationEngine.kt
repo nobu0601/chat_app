@@ -53,6 +53,9 @@ class AutomationEngine(
     private var lastScreenLoggedAt = 0L
     private var lastScreenLogged: IcocaScreen? = null
 
+    /** 押せるノードの棚卸しは1回だけ出す。毎回出すとログが埋まる。 */
+    private var reportedInventory = false
+
     /**
      * 1周期ぶん進める。
      *
@@ -176,8 +179,14 @@ class AutomationEngine(
     private fun reconcile(snapshot: ScreenSnapshot, now: Long) {
         val consistent = statesFor(snapshot.screen)
         if (session.state in consistent) {
-            // 想定どおり。Recovery 中だったなら抜ける。
-            if (session.status != AutomationStatus.RUNNING) {
+            // 想定どおりの画面にいる。
+            //
+            // **ただし RECOVERING は解除しない。** ここで解除すると、
+            // 「待ちすぎ → RECOVERING → 次の周期で RUNNING に戻る」を繰り返し、
+            // Recovery の持ち時間が永久に貯まらない。結果として状態ごとの
+            // timeout が一度も完了せず、押せないボタンを延々と押し続ける。
+            // RECOVERING を抜けるのは、実際に前へ進めたときだけ（[click] と下の遷移）。
+            if (session.status == AutomationStatus.WAITING) {
                 session.setStatus(AutomationStatus.RUNNING, now)
             }
             return
@@ -476,6 +485,7 @@ class AutomationEngine(
     ): Boolean {
         if (!throttle.allow(snapshot.screen, target.key, action, now)) return false
 
+        session.onMatch(target)
         val label = LogRedactor.redact(target.label ?: target.key)
         if (session.dryRun) {
             session.plannedClicks += "$action:$label"
@@ -486,6 +496,8 @@ class AutomationEngine(
 
         val ok = runCatching { snapshot.access.click(target) }.getOrDefault(false)
         session.onAction(action, now, ok)
+        // 押せた＝前へ進めた。滞っていた状態から抜ける。
+        if (ok) session.setStatus(AutomationStatus.RUNNING, now)
         if (action == AutomationAction.CLICK_PROCEED_TO_PAYMENT) {
             // 戻り値をそのまま残す（要件5）。true でも「チャージできた」ではない。
             recorder.log(AutomationLogKind.ACTION, "[PAYMENT_METHOD_BUTTON_CLICK] result=$ok", now)
@@ -506,7 +518,27 @@ class AutomationEngine(
             // 押し直せるようにして、次の周期に賭ける。
             // 無限に粘るわけではなく、状態ごとの timeout が区切る。
             throttle.onClickFailed(snapshot.screen, target.key, action)
-            session.setStatus(AutomationStatus.WAITING, now)
+            // RECOVERING を巻き戻さない。ここで WAITING に落とすと
+            // Recovery の持ち時間が毎周期リセットされ、timeout が永久に完了しない。
+            if (session.status != AutomationStatus.RECOVERING) {
+                session.setStatus(AutomationStatus.WAITING, now)
+            }
+
+            // 何をどこまで試したのかを残す。これが無いと実機では手の打ちようがない。
+            snapshot.access.lastClickReport()?.let {
+                recorder.log(AutomationLogKind.ACTION, "CLICK 試行: $it", now)
+            }
+            // 画面に押せるノードが1つでもあるのかを、最初の失敗のときだけ棚卸しする。
+            if (!reportedInventory) {
+                reportedInventory = true
+                val inventory = snapshot.access.clickableInventory()
+                recorder.log(
+                    AutomationLogKind.ACTION,
+                    "押せるノード(${inventory.size}): " +
+                        inventory.joinToString(" / ").take(MAX_INVENTORY_CHARS),
+                    now,
+                )
+            }
         }
         return ok
     }
@@ -515,6 +547,7 @@ class AutomationEngine(
 
     /** 探しものが見つからない。待機として記録し、timeout の判断に委ねる。 */
     private fun waitFor(snapshot: ScreenSnapshot, what: String, now: Long) {
+        // RECOVERING 中は触らない。Recovery の持ち時間を貯めさせる。
         if (session.status != AutomationStatus.WAITING &&
             session.status != AutomationStatus.RECOVERING
         ) {
@@ -550,10 +583,29 @@ class AutomationEngine(
             return
         }
         val since = session.recoveringSince ?: now
-        if (now - since > AutomationTimeouts.RECOVERY_MILLIS) {
-            recorder.log(AutomationLogKind.TIMEOUT, message, now)
-            fail(reason, message, now)
+        if (now - since <= AutomationTimeouts.RECOVERY_MILLIS) return
+
+        recorder.log(AutomationLogKind.TIMEOUT, message, now)
+
+        // ボタンは見つかっているのに押せなかった場合は、こちらの不具合ではない。
+        //
+        // 実機の ICOCA では「****9804でチャージ」が `isClickable=false` の
+        // `TextView` で、祖先もすべて押せない。Android は ACTION_CLICK を受けても
+        // `isClickable()` が false なら何もせず false を返すため、
+        // ユーザー補助の公開 API ではこのボタンを押せない
+        // （座標タップで代替してはいけない。指示書 §26）。
+        //
+        // 失敗として畳むより、ここまで運んだうえでユーザーに渡すほうが役に立つ。
+        if (session.lastMatch != null && session.lastActionResult == false) {
+            handToUser(
+                session.currentScreen,
+                "ICOCAアプリのボタンを自動で押せませんでした。" +
+                    "画面はチャージのところまで進めてあるので、ご自身で操作してください。",
+                now,
+            )
+            return
         }
+        fail(reason, message, now)
     }
 
     // -------------------------------------------------------------- finish
@@ -597,6 +649,9 @@ class AutomationEngine(
         const val SCREEN_LOG_INTERVAL_MILLIS = 1_000L
 
         private const val MAX_LABEL_CHARS = 200
+
+        /** 棚卸し行の長さの上限。 */
+        private const val MAX_INVENTORY_CHARS = 600
 
         /**
          * メイン画面からチャージへ進むボタンのラベル。
