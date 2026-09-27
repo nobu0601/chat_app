@@ -92,6 +92,9 @@
     <string name="set_automation_desc">ICOCAアプリのチャージ画面までの遷移と金額選択を補助します。決済と本人認証は必ずご自身で行います。</string>
     <string name="set_section_basic">基本設定</string>
     <string name="set_section_limits">上限</string>
+    <string name="set_daily_probe">1日1回、残高を自動で確認する</string>
+    <string name="set_daily_probe_desc">ONのとき、1日に1回だけ、画面ロックを解除した直後にICOCAアプリを開いて残高を読み取ります。残高が足りていればすぐ閉じてホームに戻ります。足りなければそのままチャージに進みます。\n改札で使ったことはAndroidからは分からないため、残高が減ったことを知るにはこの方法しかありません。</string>
+    <string name="dbg_clear_probe">今日の残高確認をやり直せるようにする（テスト用）</string>
     <string name="set_section_conditions">実行条件</string>
     <string name="set_section_automation">自動操作</string>
     <string name="set_section_about">このアプリについて</string>

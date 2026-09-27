@@ -64,6 +64,7 @@ fun DebugScreen(
     onSimulateBalance: (Int) -> Unit,
     onResetState: () -> Unit,
     onClearCooldown: () -> Unit,
+    onClearProbeMark: () -> Unit,
     onRunCheck: () -> Unit,
 ) {
     Column(
@@ -260,6 +261,9 @@ fun DebugScreen(
             }
             OutlinedButton(onClick = onClearCooldown, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.dbg_clear_cooldown))
+            }
+            OutlinedButton(onClick = onClearProbeMark, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.dbg_clear_probe))
             }
             Text(
                 "検知〜完了まで1回テストすると、次のテストまで最低チャージ間隔（設定値。既定6時間）" +

@@ -216,6 +216,12 @@ class MainViewModel(private val locator: ServiceLocator) : ViewModel() {
         transient.value = transient.value.copy(message = "クールダウンを解除しました")
     }
 
+    /** 今日の残高確認をやり直せるようにする（Debug 画面・テスト専用）。 */
+    fun clearProbeMark() = viewModelScope.launch {
+        locator.coordinator.clearProbeMarkForTesting()
+        transient.value = transient.value.copy(message = "今日の残高確認をリセットしました")
+    }
+
     fun consumeMessage() {
         transient.value = transient.value.copy(message = null)
     }

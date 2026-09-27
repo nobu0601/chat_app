@@ -38,6 +38,16 @@ data class AppSettings(
     val automationConsented: Boolean = false,
     /** これより古い残高は「不明」として扱う。 */
     val balanceMaxAgeHours: Int = 24,
+    /**
+     * 1日1回、画面ロックを解除した直後に ICOCA を開いて残高を確かめるか。
+     *
+     * **改札で使ったことは検知できない。** Android には自端末の FeliCa が
+     * 使われたことを知る公開 API が無い（PROJECT_RESEARCH §2.2）。
+     * 残高が減ったことを知るには、こちらから ICOCA を開いて画面を読むしかない。
+     *
+     * 残高が足りていればすぐ閉じてホームに戻る。足りなければそのままチャージへ進む。
+     */
+    val dailyBalanceProbe: Boolean = true,
 ) {
 
     val minChargeIntervalMillis: Long get() = minChargeIntervalHours * 3_600_000L

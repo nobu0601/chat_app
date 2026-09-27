@@ -46,6 +46,15 @@ object LimitCalculator {
                 it.timestampMillis < range.endMillis
         }.sumOf { it.chargeAmountYen }
 
+    /**
+     * 2つの時刻が **日本時間の同じ日**か。
+     *
+     * 「1日1回だけ残高を見に行く」の判定に使う。UTC で数えると
+     * 日本時間の朝の確認が前日扱いになり、1日に2回開いてしまう。
+     */
+    fun isSameJstDay(aMillis: Long, bMillis: Long): Boolean =
+        dayRange(aMillis).startMillis == dayRange(bMillis).startMillis
+
     /** チャージ不可のメンテナンス時間帯（日本時間 2:00〜4:00）か。 */
     fun isMaintenanceWindow(nowMillis: Long): Boolean {
         val jst = ZonedDateTime.ofInstant(Instant.ofEpochMilli(nowMillis), IcocaConstants.ZONE_JST)

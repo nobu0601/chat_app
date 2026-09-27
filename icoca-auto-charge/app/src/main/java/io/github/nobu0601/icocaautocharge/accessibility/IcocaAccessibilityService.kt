@@ -3,7 +3,11 @@ package io.github.nobu0601.icocaautocharge.accessibility
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityService.GestureResultCallback
 import android.accessibilityservice.GestureDescription
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Path
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -57,6 +61,12 @@ class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
 
     private var engine: AutomationEngine? = null
 
+    /** ロック解除を受け取るレシーバ。実行中に登録するのでここで持っておく。 */
+    private var unlockReceiver: BroadcastReceiver? = null
+
+    /** 残高を見に行っている最中のジョブ。二重に走らせない。 */
+    private var probeJob: Job? = null
+
     /**
      * 直近のイベントで画面が変わったかもしれない、という印（改修指示 §5）。
      *
@@ -77,6 +87,57 @@ class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
         AccessibilityBridge.onServiceConnected(this)
         SecureLog.i(SecureLog.Tag.AUTOMATION, "accessibility service connected")
         refreshSignatures()
+        registerUnlockReceiver()
+    }
+
+    /**
+     * 画面ロックの解除を受け取れるようにする。
+     *
+     * `ACTION_USER_PRESENT` はマニフェストに書いても届かないので、実行中に登録する。
+     * このサービスはユーザー補助が有効な間ずっと生きているので、置き場所として都合がよい。
+     * しかも残高を見るには ICOCA を開く必要があり、それができるのもこのサービスだけ。
+     */
+    private fun registerUnlockReceiver() {
+        if (unlockReceiver != null) return
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_USER_PRESENT -> onUnlocked()
+                    // ロック画面を使っていない端末では USER_PRESENT が来ない。
+                    // その場合だけ SCREEN_ON で拾う。ロック中は ICOCA の画面を
+                    // 読めないので、鍵がかかっている間は何もしない。
+                    Intent.ACTION_SCREEN_ON -> if (!isKeyguardLocked()) onUnlocked()
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_USER_PRESENT)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        runCatching { registerReceiver(receiver, filter) }
+            .onSuccess { unlockReceiver = receiver }
+            .onFailure { SecureLog.e("failed to register the unlock receiver", it) }
+    }
+
+    private fun isKeyguardLocked(): Boolean = runCatching {
+        (getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager).isKeyguardLocked
+    }.getOrDefault(true)
+
+    /**
+     * ロックが解けた。1日1回だけ残高を見に行く。
+     *
+     * 判断は [io.github.nobu0601.icocaautocharge.monitor.ChargeFlowCoordinator] が持つ。
+     * ここは「解除された」という事実を渡すだけ。
+     */
+    private fun onUnlocked() {
+        if (probeJob?.isActive == true) return
+        val coordinator = IcocaApp.locator?.coordinator ?: return
+        probeJob = scope.launch {
+            // 解除直後はまだアニメーションの最中。少し置いてから開く。
+            delay(UNLOCK_SETTLE_MILLIS)
+            runCatching { coordinator.onUserPresent() }
+                .onFailure { SecureLog.e("daily balance probe failed", it) }
+        }
     }
 
     /**
@@ -95,6 +156,9 @@ class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
     }
 
     override fun onDestroy() {
+        unlockReceiver?.let { r -> runCatching { unregisterReceiver(r) } }
+        unlockReceiver = null
+        probeJob?.cancel()
         stopLoop()
         scope.cancel()
         AccessibilityBridge.onServiceDisconnected()
@@ -111,6 +175,50 @@ class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
         )
         stopLoop()
     }
+
+    // --------------------------------------------------------------- probe
+
+    /**
+     * 残高を見るために ICOCA を開き、読み取れるまで待つ。
+     *
+     * ### なぜ開く必要があるのか
+     *
+     * **改札で使われたことは検知できない。** Android には自端末の FeliCa が
+     * 使われたことを知る公開 API が無い（PROJECT_RESEARCH §2.2）。
+     * 残高が減ったことを知る手段は「ICOCA を開いて画面を読む」以外に無い。
+     *
+     * 読み取り自体は [captureSnapshot] が勝手にやってくれるので、
+     * ここでやるのは「開く」ことと「新しい値が出るまで待つ」ことだけ。
+     *
+     * @return 今回の起動で読めた残高。読めなければ null。
+     */
+    suspend fun probeBalance(timeoutMillis: Long = PROBE_TIMEOUT_MILLIS): BalanceReading? {
+        val startedAt = System.currentTimeMillis()
+        if (!launchIcoca()) {
+            SecureLog.w(SecureLog.Tag.BALANCE, "balance probe could not launch ICOCA")
+            return null
+        }
+        val deadline = startedAt + timeoutMillis
+        while (System.currentTimeMillis() < deadline) {
+            // セッションが無い間も、イベントのたびに captureSnapshot が走って残高を公開する。
+            // 念のためこちらからも撮っておく（イベントが来ないことがあるため）。
+            runCatching { captureSnapshot(System.currentTimeMillis()) }
+            val reading = AccessibilityBridge.lastBalance.value
+            // **今回の起動で読めた値だけを採用する。** 前回の残り物を掴むと、
+            // 改札で減ったことに気づけないまま「まだ十分ある」と判断してしまう。
+            if (reading != null && reading.observedAt >= startedAt) {
+                SecureLog.i(SecureLog.Tag.BALANCE, "balance probe read a fresh value")
+                return reading
+            }
+            delay(AutomationTimeouts.POLL_INTERVAL_MILLIS)
+        }
+        SecureLog.w(SecureLog.Tag.BALANCE, "balance probe timed out")
+        return null
+    }
+
+    /** ICOCA を閉じてホームに戻す。残高が足りていて、何もする必要がなかったとき。 */
+    fun returnHome(): Boolean =
+        runCatching { performGlobalAction(GLOBAL_ACTION_HOME) }.getOrDefault(false)
 
     // ------------------------------------------------------------- session
 
@@ -385,5 +493,11 @@ class IcocaAccessibilityService : AccessibilityService(), GesturePerformer {
 
         /** ジェスチャー完了を待つ上限。 */
         const val GESTURE_TIMEOUT_MILLIS = 1_500L
+
+        /** 残高を見に行ったとき、読めるまで待つ上限。 */
+        const val PROBE_TIMEOUT_MILLIS = 20_000L
+
+        /** ロック解除から ICOCA を開くまでの間。解除直後はまだ画面が動いている。 */
+        const val UNLOCK_SETTLE_MILLIS = 1_500L
     }
 }

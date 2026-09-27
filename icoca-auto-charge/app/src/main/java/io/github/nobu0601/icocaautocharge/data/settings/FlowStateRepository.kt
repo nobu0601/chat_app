@@ -52,6 +52,14 @@ class FlowStateRepository(private val context: Context) {
 
         val lastSkipReason = stringPreferencesKey("last_skip_reason")
 
+        /**
+         * 最後に「残高を見るために ICOCA を開いた」時刻。
+         *
+         * 1日1回に絞るための記録。[lastCheckAt]（判定を回した時刻）とは別物で、
+         * 判定はアプリを開かなくても回るのに対し、こちらは実際に開いたときだけ進む。
+         */
+        val lastProbeAt = longPreferencesKey("last_probe_at")
+
         /** 初回に検出した ICOCA アプリの署名。なりすまし検知に使う。 */
         val icocaSignature = stringPreferencesKey("icoca_signature")
 
@@ -82,10 +90,22 @@ class FlowStateRepository(private val context: Context) {
     val lastCheckAt: Flow<Long?> = context.flowStateDataStore.data.map { it[Keys.lastCheckAt] }
     val lastChargeAt: Flow<Long?> = context.flowStateDataStore.data.map { it[Keys.lastChargeAt] }
     val lastSkipReason: Flow<String?> = context.flowStateDataStore.data.map { it[Keys.lastSkipReason] }
+    val lastProbeAt: Flow<Long?> = context.flowStateDataStore.data.map { it[Keys.lastProbeAt] }
 
     suspend fun currentAttempt(): ChargeAttempt? = attempt.first()
     suspend fun currentLastBalance(): BalanceReading? = lastBalance.first()
     suspend fun currentLastTerminalAt(): Long? = lastTerminalAt.first()
+    suspend fun currentLastProbeAt(): Long? = lastProbeAt.first()
+
+    /** 残高を見に行ったことを記録する。1日1回の判定はこの値で行う。 */
+    suspend fun saveProbeAt(millis: Long) {
+        context.flowStateDataStore.edit { it[Keys.lastProbeAt] = millis }
+    }
+
+    /** 1日1回の制限を解除する（Debug 画面・テスト専用）。 */
+    suspend fun clearProbeMark() {
+        context.flowStateDataStore.edit { it.remove(Keys.lastProbeAt) }
+    }
 
     suspend fun saveAttempt(a: ChargeAttempt) {
         context.flowStateDataStore.edit { p ->

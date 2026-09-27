@@ -290,6 +290,7 @@ private fun AppRoot(
                     onSimulateBalance = { viewModel.submitSimulatedBalance(it) },
                     onResetState = { viewModel.resetState() },
                     onClearCooldown = { viewModel.clearCooldown() },
+                    onClearProbeMark = { viewModel.clearProbeMark() },
                     onRunCheck = { viewModel.checkNow() },
                 )
             }

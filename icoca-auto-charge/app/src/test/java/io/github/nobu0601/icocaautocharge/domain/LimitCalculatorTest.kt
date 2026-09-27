@@ -87,4 +87,34 @@ class LimitCalculatorTest {
         assertTrue(LimitCalculator.isMaintenanceWindow(jst(2026, 9, 7, 3, 59)))
         assertFalse(LimitCalculator.isMaintenanceWindow(jst(2026, 9, 7, 4, 0)))
     }
+
+    @Test
+    fun `日本時間の同じ日かを判定できる`() {
+        // 1日1回の残高確認は、この判定で「今日もう見たか」を決める。
+        val jstMorning = zonedJst(2026, 9, 27, 8, 0)
+        val jstNight = zonedJst(2026, 9, 27, 23, 30)
+        assertTrue(LimitCalculator.isSameJstDay(jstMorning, jstNight))
+    }
+
+    @Test
+    fun `日をまたげば別の日として扱う`() {
+        val before = zonedJst(2026, 9, 27, 23, 59)
+        val after = zonedJst(2026, 9, 28, 0, 1)
+        assertFalse(LimitCalculator.isSameJstDay(before, after))
+    }
+
+    @Test
+    fun `UTCで日をまたいでも日本時間で同じ日なら同じ日`() {
+        // 日本時間 8:00 は UTC では前日 23:00。UTC で数えると
+        // 朝の確認が前日扱いになり、1日に2回開いてしまう。
+        val jstMorning = zonedJst(2026, 9, 27, 8, 0)
+        val jstNoon = zonedJst(2026, 9, 27, 12, 0)
+        assertTrue(LimitCalculator.isSameJstDay(jstMorning, jstNoon))
+    }
+
+    private fun zonedJst(y: Int, m: Int, d: Int, h: Int, min: Int): Long =
+        java.time.ZonedDateTime.of(
+            y, m, d, h, min, 0, 0,
+            io.github.nobu0601.icocaautocharge.core.IcocaConstants.ZONE_JST,
+        ).toInstant().toEpochMilli()
 }

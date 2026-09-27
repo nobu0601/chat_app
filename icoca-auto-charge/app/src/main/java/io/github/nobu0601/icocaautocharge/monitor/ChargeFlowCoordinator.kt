@@ -17,6 +17,7 @@ import io.github.nobu0601.icocaautocharge.domain.ChargeDecisionEngine
 import io.github.nobu0601.icocaautocharge.domain.ChargeState
 import io.github.nobu0601.icocaautocharge.domain.ChargeStateMachine
 import io.github.nobu0601.icocaautocharge.domain.ChargeStatus
+import io.github.nobu0601.icocaautocharge.domain.LimitCalculator
 import io.github.nobu0601.icocaautocharge.domain.ErrorReason
 import io.github.nobu0601.icocaautocharge.icoca.IcocaAppProbe
 import io.github.nobu0601.icocaautocharge.icoca.IcocaLauncher
@@ -115,6 +116,83 @@ class ChargeFlowCoordinator(
         )
         val autoStarted = started && tryAutoStart(settings, now)
         CheckResult(balance, decision, started, autoStarted)
+    }
+
+    /**
+     * 画面ロックを解除した直後に呼ばれる。1日1回だけ残高を見に行く。
+     *
+     * ### なぜロック解除のタイミングなのか
+     *
+     * **改札で使われたことは検知できない。** Android には自端末の FeliCa が
+     * 使われたことを知る公開 API が無い（PROJECT_RESEARCH §2.2）ので、
+     * 残高が減ったことを知るには ICOCA を開いて画面を読むしかない。
+     *
+     * 開けば必ず画面に割り込むことになる。利用者が自分でスマホを見た直後なら、
+     * 操作の最中に横から出てくるよりは邪魔になりにくい。
+     *
+     * ### やること
+     *
+     * 1. 今日もう見に行っていれば何もしない
+     * 2. ICOCA を開いて残高を読む
+     * 3. 足りていればホームに戻して終わり
+     * 4. 足りなければ、そのままいつものチャージ判定へ渡す
+     *
+     * @return 残高を見に行ったか。すでに今日見ていた・条件が揃わない場合は false。
+     */
+    suspend fun onUserPresent(): Boolean {
+        val settings = settingsRepo.current()
+        if (!settings.monitoringEnabled || !settings.dailyBalanceProbe) return false
+
+        val now = time.nowMillis()
+        val lastProbe = flowState.currentLastProbeAt()
+        if (lastProbe != null && LimitCalculator.isSameJstDay(lastProbe, now)) {
+            // 今日はもう見に行った。1日1回という約束を守る。
+            return false
+        }
+
+        // 進行中の試行があるなら、そちらが先。割り込んで二重に開かない。
+        val attempt = flowState.currentAttempt()
+        if (attempt != null && attempt.state.isActive) return false
+
+        val service = AccessibilityBridge.service() ?: run {
+            SecureLog.w(
+                SecureLog.Tag.BALANCE,
+                "daily probe skipped: accessibility service is not connected",
+            )
+            return false
+        }
+
+        // **読みに行く前に記録する。** 途中で失敗しても、その日のうちに
+        // 何度も ICOCA が開くことを防ぐ。次の機会は明日になる。
+        flowState.saveProbeAt(now)
+        SecureLog.i(SecureLog.Tag.BALANCE, "daily balance probe starting")
+
+        val reading = service.probeBalance()
+        if (reading == null) {
+            // 読めなかった。開いたままにせず戻す。
+            service.returnHome()
+            SecureLog.w(SecureLog.Tag.BALANCE, "daily probe could not read the balance")
+            return true
+        }
+
+        val result = runCheck("daily-probe")
+        if (result.autoStarted) {
+            // チャージが要る。ICOCA はすでに前面にいるので、そのまま自動操作へ。
+            superviseAndVerify(automation = true)
+            return true
+        }
+
+        // ここに来るのは2通り。どちらも ICOCA を開けたままにはしない。
+        //  - 残高が足りていた（そもそもチャージ不要）
+        //  - チャージは要るが「チャージ前にタップして確認する」が ON なので、
+        //    通知を出してユーザーのタップを待つ
+        service.returnHome()
+        SecureLog.i(
+            SecureLog.Tag.BALANCE,
+            if (result.startedAttempt) "daily probe found a low balance; waiting for the user"
+            else "daily probe done; balance is sufficient",
+        )
+        return true
     }
 
     /**
@@ -481,6 +559,17 @@ class ChargeFlowCoordinator(
     suspend fun clearCooldownForTesting() = mutex.withLock {
         flowState.clearCooldown()
         SecureLog.w(SecureLog.Tag.MONITOR, "cooldown cleared via Debug screen (testing only)")
+    }
+
+    /**
+     * 「今日はもう残高を見に行った」という記録を消す（Debug 画面・テスト専用）。
+     *
+     * 1日1回に絞っているので、実機で試すたびに翌日まで待つことになる。
+     * それでは検証にならないので、明示的なボタンとして用意している。
+     */
+    suspend fun clearProbeMarkForTesting() = mutex.withLock {
+        flowState.clearProbeMark()
+        SecureLog.w(SecureLog.Tag.BALANCE, "daily probe mark cleared via Debug screen (testing only)")
     }
 
     /** 放置された試行を終端に落とす（ARCHITECTURE §3.1-4）。 */

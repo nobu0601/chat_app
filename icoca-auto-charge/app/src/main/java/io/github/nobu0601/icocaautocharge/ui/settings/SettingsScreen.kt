@@ -87,6 +87,13 @@ fun SettingsScreen(
                 stringResource(R.string.set_confirm_before_desc),
                 style = MaterialTheme.typography.bodySmall,
             )
+            SwitchRow(stringResource(R.string.set_daily_probe), draft.dailyBalanceProbe) {
+                draft = draft.copy(dailyBalanceProbe = it)
+            }
+            Text(
+                stringResource(R.string.set_daily_probe_desc),
+                style = MaterialTheme.typography.bodySmall,
+            )
             SwitchRow(stringResource(R.string.set_wifi_only), draft.wifiOnly) {
                 draft = draft.copy(wifiOnly = it)
             }

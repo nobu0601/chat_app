@@ -21,6 +21,7 @@ class SettingsRepository(private val context: Context) {
         val threshold = intPreferencesKey("threshold_yen")
         val amount = intPreferencesKey("charge_amount_yen")
         val daily = intPreferencesKey("daily_limit_yen")
+        val dailyProbe = booleanPreferencesKey("daily_balance_probe")
         val monthly = intPreferencesKey("monthly_limit_yen")
         val interval = intPreferencesKey("min_charge_interval_hours")
         val confirm = booleanPreferencesKey("confirm_before_charge")
@@ -40,6 +41,7 @@ class SettingsRepository(private val context: Context) {
             thresholdYen = p[Keys.threshold] ?: d.thresholdYen,
             chargeAmountYen = p[Keys.amount] ?: d.chargeAmountYen,
             dailyLimitYen = p[Keys.daily] ?: d.dailyLimitYen,
+            dailyBalanceProbe = p[Keys.dailyProbe] ?: d.dailyBalanceProbe,
             monthlyLimitYen = p[Keys.monthly] ?: d.monthlyLimitYen,
             minChargeIntervalHours = p[Keys.interval] ?: d.minChargeIntervalHours,
             confirmBeforeCharge = p[Keys.confirm] ?: d.confirmBeforeCharge,
@@ -61,6 +63,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.threshold] = s.thresholdYen
             p[Keys.amount] = s.chargeAmountYen
             p[Keys.daily] = s.dailyLimitYen
+            p[Keys.dailyProbe] = s.dailyBalanceProbe
             p[Keys.monthly] = s.monthlyLimitYen
             p[Keys.interval] = s.minChargeIntervalHours
             p[Keys.confirm] = s.confirmBeforeCharge
