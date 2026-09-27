@@ -435,3 +435,131 @@ class AutomationEngineTest {
         assertTrue("下4桁を残さない", all.none { it.contains("9804") })
     }
 }
+
+/**
+ * 「****9804でチャージ」が見つからない問題の回帰テスト。
+ *
+ * 実機で「ボタンは見えているのに押されない」が起きた。
+ * **見た目のボタンと `AccessibilityNodeInfo` の構造は一致しない**ので、
+ * ラベルの形がどう転んでも掴めることをここで固定する。
+ */
+class PaymentButtonMatchingTest {
+
+    private fun engineFor(screen: FakeScreen): Pair<AutomationEngine, RecordingRecorder> {
+        val session = AutomationSession(
+            sessionId = "pay", attemptId = 1L, startedAt = 0L,
+            chargeAmountYen = 5_000, dryRun = false, autoConfirmPayment = false,
+        )
+        val rec = RecordingRecorder()
+        return AutomationEngine(
+            session,
+            SafetyGuard(expectedSignature = null, autoConfirmPayment = false),
+            actualSignature = null,
+            recorder = rec,
+        ) to rec
+    }
+
+    private fun amountScreenWithButton(buttonLabel: String) = FakeScreen(
+        texts = listOf(
+            "チャージ", "チャージ金額", "5,000", "円",
+            "1,000", "2,000", "3,000", "5,000", "10,000", buttonLabel,
+        ),
+        buttons = mapOf("5,000" to false, buttonLabel to false),
+    )
+
+    private fun drive(screen: FakeScreen): AutomationEngine {
+        val (e, _) = engineFor(screen)
+        var t = 0L
+        repeat(8) {
+            e.tick(screen.snapshot(t), t)
+            t += 300
+        }
+        return e
+    }
+
+    @Test
+    fun `末尾がでチャージのラベルを押せる`() {
+        val screen = amountScreenWithButton("****9804でチャージ")
+        drive(screen)
+        assertTrue(screen.clicks.contains("****9804でチャージ"))
+    }
+
+    @Test
+    fun `カード番号との間に空白があっても押せる`() {
+        val screen = amountScreenWithButton("**** 9804 でチャージ")
+        drive(screen)
+        assertTrue(screen.clicks.contains("**** 9804 でチャージ"))
+    }
+
+    @Test
+    fun `全角のカード番号でも押せる`() {
+        val screen = amountScreenWithButton("＊＊＊＊９８０４でチャージ")
+        drive(screen)
+        assertTrue(screen.clicks.contains("＊＊＊＊９８０４でチャージ"))
+    }
+
+    @Test
+    fun `改行が入っていても押せる`() {
+        val screen = amountScreenWithButton("****9804\nでチャージ")
+        drive(screen)
+        assertTrue(screen.clicks.contains("****9804\nでチャージ"))
+    }
+
+    @Test
+    fun `末尾に別の語が続いても押せる`() {
+        // 末尾一致だけの実装ではここで取りこぼしていた。
+        val screen = amountScreenWithButton("****9804でチャージする")
+        drive(screen)
+        assertTrue(screen.clicks.contains("****9804でチャージする"))
+    }
+
+    @Test
+    fun `押した結果がログに残る`() {
+        val screen = amountScreenWithButton("****9804でチャージ")
+        val (e, rec) = engineFor(screen)
+        var t = 0L
+        repeat(8) {
+            e.tick(screen.snapshot(t), t)
+            t += 300
+        }
+        val lines = rec.logs.map { it.detail }
+        assertTrue(
+            "掴んだノードの詳細を残す",
+            lines.any { it.startsWith("[PAYMENT_METHOD_BUTTON_FOUND]") },
+        )
+        assertTrue(
+            "performAction の戻り値を残す",
+            lines.any { it.startsWith("[PAYMENT_METHOD_BUTTON_CLICK] result=") },
+        )
+    }
+
+    @Test
+    fun `押しただけでは成功にしない`() {
+        // performAction が true を返しても、画面が変わるまでは何も確定しない。
+        val screen = amountScreenWithButton("****9804でチャージ")
+        val e = drive(screen)
+        assertEquals(true, e.session.lastActionResult)
+        assertNull("画面が変わっていない間は決着させない", e.session.outcome)
+        assertEquals(AutomationState.PAYMENT_CONFIRM, e.session.state)
+    }
+
+    @Test
+    fun `画面が変われば確認画面として扱う`() {
+        val screen = amountScreenWithButton("****9804でチャージ")
+        val (e, _) = engineFor(screen)
+        var t = 0L
+        repeat(6) {
+            e.tick(screen.snapshot(t), t)
+            t += 300
+        }
+        // 押した後に確認ダイアログが出た
+        val dialog = FakeScreen(
+            texts = listOf("チャージ確認", "チャージ額：5,000円", "チャージしますか？"),
+            buttons = mapOf("チャージする" to false, "キャンセル" to false),
+        )
+        e.tick(dialog.snapshot(t), t)
+        // 自動確定 OFF なのでユーザーへ引き渡す
+        assertTrue(e.session.outcome is AutomationSession.Outcome.HandedToUser)
+        assertTrue("確定は押さない", dialog.clicks.isEmpty())
+    }
+}

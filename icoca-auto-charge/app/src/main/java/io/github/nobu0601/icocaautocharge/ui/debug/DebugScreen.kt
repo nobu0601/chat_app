@@ -156,6 +156,21 @@ fun DebugScreen(
                 LabeledValue("Step", automation.currentStep.toString())
                 LabeledValue("Last Action", automation.lastAction?.name ?: "—")
                 LabeledValue("Last Action Time", formatTimeFull(automation.lastActionAt.orNull()))
+                // performAction の戻り値。true でも「チャージできた」ではない。
+                LabeledValue(
+                    "Last Action Result",
+                    automation.lastActionResult?.toString() ?: "—",
+                )
+                LabeledValue("Matched Text", automation.matchedText ?: "—")
+                LabeledValue("Matched Node Class", automation.matchedNodeClass ?: "—")
+                LabeledValue(
+                    "Matched Node Clickable",
+                    automation.matchedNodeClickable?.toString() ?: "—",
+                )
+                LabeledValue(
+                    "Clickable Ancestor Depth",
+                    automation.clickableAncestorDepth?.toString() ?: "—",
+                )
                 LabeledValue("Last Screen Change", formatTimeFull(automation.lastScreenChangeAt))
                 LabeledValue("Unknown Since", formatTimeFull(automation.unknownSince))
                 LabeledValue("Unknown Duration", formatSeconds(automation.unknownDurationMillis))

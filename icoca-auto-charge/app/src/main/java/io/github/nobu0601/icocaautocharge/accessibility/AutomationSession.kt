@@ -52,6 +52,20 @@ class AutomationSession(
     var lastActionAt: Long = 0L
         private set
 
+    /**
+     * 直前の `performAction` の戻り値。
+     *
+     * **true でも「チャージ操作が成功した」ではない。**
+     * アクセシビリティのアクションが受け付けられたというだけで、
+     * 画面が進んだかどうかは次の周期で取り直して確かめる。
+     */
+    var lastActionResult: Boolean? = null
+        private set
+
+    /** 直前に掴んだノードの情報。Debug 画面に出して、外した時に追えるようにする。 */
+    var lastMatch: ClickTarget? = null
+        private set
+
     /** 画面種別が最後に変わった時刻。 */
     var lastScreenChangeAt: Long = startedAt
         private set
@@ -131,10 +145,16 @@ class AutomationSession(
         }
     }
 
-    fun onAction(action: AutomationAction, nowMillis: Long) {
+    fun onAction(action: AutomationAction, nowMillis: Long, result: Boolean) {
         lastAction = action
         lastActionAt = nowMillis
+        lastActionResult = result
         currentStep++
+    }
+
+    /** 押す相手を決めた。押す前に呼ぶので、押せなかった場合も何を掴んだかが残る。 */
+    fun onMatch(target: ClickTarget) {
+        lastMatch = target
     }
 
     fun markAmountSelected() {

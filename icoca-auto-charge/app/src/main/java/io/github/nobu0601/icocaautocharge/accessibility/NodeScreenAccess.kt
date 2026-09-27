@@ -16,18 +16,33 @@ class NodeScreenAccess(private val root: AccessibilityNodeInfo) : ScreenAccess {
     /** [find] が返した [ClickTarget] から実ノードに戻るための対応表。 */
     private val resolved = HashMap<String, AccessibilityNodeInfo>()
 
-    override fun find(spec: NodeSpec): ClickTarget? {
-        val node = when (spec) {
-            is NodeSpec.ExactText ->
-                NodeFinder.findClickableByExactText(root, spec.candidates, spec.excludeEditable)
-            is NodeSpec.TextSuffix ->
-                NodeFinder.findClickableByTextSuffix(root, spec.suffixes)
-        } ?: return null
+    override fun find(spec: NodeSpec): ClickTarget? = when (spec) {
+        is NodeSpec.ExactText -> {
+            NodeFinder.findClickableByExactText(root, spec.candidates, spec.excludeEditable)
+                ?.let { node -> target(NodeFinder.Match(node = node, ancestorDepth = 0)) }
+        }
+        // 末尾一致も部分一致に委ねる。見た目のボタンとノード構造は一致しないので、
+        // 末尾だけで探すと実機で取りこぼす。
+        is NodeSpec.TextSuffix -> NodeFinder.findClickableByTextContains(root, spec.suffixes)
+            ?.let { target(it) }
+        is NodeSpec.TextContains -> NodeFinder.findClickableByTextContains(root, spec.needles)
+            ?.let { target(it) }
+    }
 
-        val label = NodeFinder.visibleText(node)
+    private fun target(match: NodeFinder.Match): ClickTarget {
+        val node = match.node
+        val label = NodeFinder.visibleText(node) ?: match.matchedText.takeIf { it.isNotEmpty() }
         val key = keyOf(node, label)
         resolved[key] = node
-        return ClickTarget(key = key, label = label)
+        return ClickTarget(
+            key = key,
+            label = label,
+            matchedText = match.matchedText.takeIf { it.isNotEmpty() },
+            matchedClassName = match.textClassName ?: node.className?.toString(),
+            matchedNodeClickable = match.textNodeClickable || node.isClickable,
+            ancestorDepth = match.ancestorDepth,
+            diagnostics = NodeFinder.describe(match),
+        )
     }
 
     override fun clickableLabels(): List<String> = NodeFinder.clickableLabels(root)

@@ -51,8 +51,25 @@ class FakeScreen(
                     wanted.any { TextNormalizer.normalize(text).endsWith(it) }
                 }
             }
+            // 実機と同じ順序で探す。末尾一致 → 部分一致。
+            is NodeSpec.TextContains -> {
+                val wanted = spec.needles.map { TextNormalizer.normalize(it) }
+                buttons.keys.firstOrNull { text ->
+                    wanted.any { TextNormalizer.normalize(text).endsWith(it) }
+                } ?: buttons.keys.firstOrNull { text ->
+                    wanted.any { TextNormalizer.normalize(text).contains(it) }
+                }
+            }
         } ?: return null
-        return ClickTarget(key = "text:$label", label = label)
+        return ClickTarget(
+            key = "text:$label",
+            label = label,
+            matchedText = label,
+            matchedClassName = "android.widget.Button",
+            matchedNodeClickable = true,
+            ancestorDepth = 0,
+            diagnostics = "text=$label depth=0",
+        )
     }
 
     override fun clickableLabels(): List<String> = buttons.keys.toList()

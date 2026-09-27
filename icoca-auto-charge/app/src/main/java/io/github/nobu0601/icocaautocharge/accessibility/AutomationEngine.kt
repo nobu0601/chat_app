@@ -354,7 +354,7 @@ class AutomationEngine(
 
     /** 支払いへ進むボタンを探す。見つかるまで周期的に探し続ける。 */
     private fun findPaymentButton(snapshot: ScreenSnapshot, now: Long) {
-        val target = snapshot.access.find(NodeSpec.TextSuffix(PROCEED_TO_PAYMENT_SUFFIXES))
+        val target = snapshot.access.find(NodeSpec.TextContains(PROCEED_TO_PAYMENT_NEEDLES))
         if (target == null) {
             waitFor(snapshot, "支払いへ進むボタン", now)
             return
@@ -370,13 +370,37 @@ class AutomationEngine(
      * 確定するかどうかは [confirmPayment] が別途判断する。
      */
     private fun clickPaymentButton(snapshot: ScreenSnapshot, now: Long) {
-        val target = snapshot.access.find(NodeSpec.TextSuffix(PROCEED_TO_PAYMENT_SUFFIXES))
+        val target = snapshot.access.find(NodeSpec.TextContains(PROCEED_TO_PAYMENT_NEEDLES))
         if (target == null) {
             waitFor(snapshot, "支払いへ進むボタン", now)
             return
         }
-        if (!click(snapshot, target, AutomationAction.CLICK_PROCEED_TO_PAYMENT, now)) return
+
+        // 押す直前に、何を掴んだのかを必ず残す（要件4）。
+        // 実機で「ボタンは見えているのに押されない」が起きたとき、
+        // どのノードをどう解決したのかが分からないと手の打ちようがない。
+        recorder.log(
+            AutomationLogKind.ACTION,
+            "[PAYMENT_METHOD_BUTTON_FOUND] ${target.diagnostics ?: "(詳細なし)"}",
+            now,
+        )
+        session.onMatch(target)
+
+        val clicked = click(snapshot, target, AutomationAction.CLICK_PROCEED_TO_PAYMENT, now)
+        if (!clicked) return
+
+        // **performAction の戻り値 true は「チャージ操作が成功した」ではない**（要件6）。
+        // アクセシビリティのアクションが受け付けられたというだけで、
+        // ICOCA 側が画面を進めたかどうかは何も言っていない。
+        // 次の周期で root を取り直し、画面が変わったかどうかで判断する（要件7, 8）。
         session.moveTo(AutomationState.PAYMENT_CONFIRM, now)
+        session.setStatus(AutomationStatus.WAITING, now)
+        recorder.log(
+            AutomationLogKind.WAIT,
+            "支払いボタンを押した。画面遷移を確認する（最大" +
+                "${AutomationTimeouts.forState(AutomationState.PAYMENT_CONFIRM)?.div(1000)}秒）",
+            now,
+        )
         throttle.onStepAdvanced()
     }
 
@@ -387,6 +411,16 @@ class AutomationEngine(
      * ON の場合も、7つの条件が**すべて**揃わなければ押さない。
      */
     private fun confirmPayment(snapshot: ScreenSnapshot, now: Long) {
+        // **まず画面を確かめる。** 支払いボタンを押した直後は、状態が
+        // PAYMENT_CONFIRM でも画面はまだ金額選択のままなのが普通。
+        // ここを飛ばすと、確認ダイアログが出ていないのに
+        // 「ご自身で確定してください」と引き渡してしまう（要件6, 8）。
+        // performAction が true を返したことは、画面が進んだ証拠にならない。
+        if (snapshot.screen != IcocaScreen.PAYMENT_CONFIRM) {
+            waitFor(snapshot, "決済確認画面", now)
+            return
+        }
+
         if (!session.autoConfirmPayment) {
             handToUser(
                 snapshot.screen,
@@ -397,11 +431,7 @@ class AutomationEngine(
         }
 
         // 1,2: パッケージと署名は passesHardGuards が毎周期見ている。
-        // 3: いまが本当に決済確認画面か。
-        if (snapshot.screen != IcocaScreen.PAYMENT_CONFIRM) {
-            waitFor(snapshot, "決済確認画面", now)
-            return
-        }
+        // 3: 画面が決済確認であることは上で確認済み。
         // 4: 画面上の金額が設定額と一致するか。
         if (!guard.isAmountVisibleOnScreen(snapshot.texts, session.chargeAmountYen)) {
             fail(
@@ -416,7 +446,7 @@ class AutomationEngine(
         if (target == null) {
             // 確定ボタンが無いのに「〜でチャージ」があるなら、まだ確認ダイアログではない。
             // そのボタンは決済を確定しないので、押して確認ダイアログへ進む。
-            val proceed = snapshot.access.find(NodeSpec.TextSuffix(PROCEED_TO_PAYMENT_SUFFIXES))
+            val proceed = snapshot.access.find(NodeSpec.TextContains(PROCEED_TO_PAYMENT_NEEDLES))
             if (proceed != null) {
                 clickPaymentButton(snapshot, now)
                 return
@@ -449,13 +479,17 @@ class AutomationEngine(
         val label = LogRedactor.redact(target.label ?: target.key)
         if (session.dryRun) {
             session.plannedClicks += "$action:$label"
-            session.onAction(action, now)
+            session.onAction(action, now, result = true)
             recorder.log(AutomationLogKind.ACTION, "[ドライラン] CLICK \"$label\"", now)
             return true
         }
 
         val ok = runCatching { snapshot.access.click(target) }.getOrDefault(false)
-        session.onAction(action, now)
+        session.onAction(action, now, ok)
+        if (action == AutomationAction.CLICK_PROCEED_TO_PAYMENT) {
+            // 戻り値をそのまま残す（要件5）。true でも「チャージできた」ではない。
+            recorder.log(AutomationLogKind.ACTION, "[PAYMENT_METHOD_BUTTON_CLICK] result=$ok", now)
+        }
         recorder.log(
             AutomationLogKind.ACTION,
             if (ok) "CLICK \"$label\"" else "CLICK 失敗 \"$label\"",
@@ -568,12 +602,18 @@ class AutomationEngine(
         val CHARGE_METHOD_LABELS = listOf("クレジットカード", "登録済みのカード", "銀行口座")
 
         /**
-         * 金額選択画面から確認へ進むボタンの末尾。
+         * 金額選択画面から確認へ進むボタンを見分ける語。
          *
-         * 実機は「****9804でチャージ」で前半にカード番号が入るため末尾で照合する。
+         * 実機のラベルは「****9804でチャージ」で、前半にカード番号が入る。
+         * **固定文字列で探してはいけない**（要件1）。見た目のボタンと
+         * `AccessibilityNodeInfo` の構造は一致せず、実機では
+         * 「****9804」と「でチャージ」が別ノードに割れていることがある。
+         * 可変部分を避けて「でチャージ」だけを手がかりにし、
+         * 末尾一致 → 部分一致 → 子孫連結の順で探す（[NodeFinder.findClickableByTextContains]）。
+         *
          * **押しても決済は確定せず、確認ダイアログが出るだけ。**
          */
-        val PROCEED_TO_PAYMENT_SUFFIXES = listOf("でチャージ")
+        val PROCEED_TO_PAYMENT_NEEDLES = listOf("でチャージ")
 
         /**
          * 決済を確定するボタンのラベル。

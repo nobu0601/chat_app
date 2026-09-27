@@ -27,6 +27,19 @@ data class ClickTarget(
     /** 同じボタンを指すなら毎回同じ値になること。viewId → ラベル → クラス名の順で決める。 */
     val key: String,
     val label: String?,
+    /** 照合に使った文字列（ノード自身のテキスト、または子孫を連結したもの）。 */
+    val matchedText: String? = null,
+    /** 文字を持っていたノードのクラス名。 */
+    val matchedClassName: String? = null,
+    /** 文字を持っていたノード自身が押せたか。false なら祖先を押す。 */
+    val matchedNodeClickable: Boolean = false,
+    /** 文字のノードから押す相手まで遡った階層数。0 = 自分自身。 */
+    val ancestorDepth: Int = 0,
+    /**
+     * 押す直前にそのままログへ出す1行（要件4）。
+     * **カード番号を含みうるので、出す前に `LogRedactor` を通すこと。**
+     */
+    val diagnostics: String? = null,
 )
 
 /** どのノードを探すか。 */
@@ -39,6 +52,14 @@ sealed interface NodeSpec {
 
     /** 末尾一致。「****9804でチャージ」のように可変部分が前に来るボタン用。 */
     data class TextSuffix(val suffixes: Collection<String>) : NodeSpec
+
+    /**
+     * 部分一致。**見た目のボタンとノード構造が一致しない**ときの主力。
+     *
+     * 末尾一致だけでは実機で取りこぼした。テキストの後ろに別の語が付くこともあれば、
+     * 「****9804」と「でチャージ」が別ノードに割れていることもある。
+     */
+    data class TextContains(val needles: Collection<String>) : NodeSpec
 }
 
 /**
